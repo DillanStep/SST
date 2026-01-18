@@ -1,0 +1,194 @@
+/**
+ * @file serverManager.ts
+ * @description Multi-server configuration management
+ * 
+ * This module manages server configurations for connecting the dashboard
+ * to multiple SST API instances (different DayZ servers).
+ * 
+ * @author SST Development Team
+ * @license Non-Commercial Open Source - See LICENSE for terms
+ * @version 1.0.0
+ * @lastUpdated 2025-01-15
+ * 
+ * FEATURES:
+ * - Add/edit/delete server configurations
+ * - Switch between multiple servers
+ * - Persist configurations in localStorage
+ * - Active server tracking
+ * 
+ * EXPORTS:
+ * - getServers()        - List all configured servers
+ * - addServer()         - Add new server configuration
+ * - updateServer()      - Update existing server
+ * - deleteServer()      - Remove server configuration
+ * - getActiveServer()   - Get currently selected server
+ * - setActiveServer()   - Switch to different server
+ * 
+ * SERVER CONFIG STRUCTURE:
+ * {
+ *   id: string,         // Unique identifier
+ *   name: string,       // Display name
+ *   url: string,        // API base URL
+ *   apiKey?: string     // Optional API key
+ * }
+ * 
+ * STORAGE:
+ * - Servers: localStorage['sst-servers']
+ * - Active: localStorage['sst-active-server']
+ * 
+ * HOW TO EXTEND:
+ * 1. Add server health checking
+ * 2. Add server grouping/folders
+ * 3. Add import/export configurations
+ * 4. Add server-specific preferences
+ */
+import type { ServerConfig } from '../types';
+
+const STORAGE_KEY = 'sst-servers';
+const ACTIVE_SERVER_KEY = 'sst-active-server';
+
+// Generate a unique ID
+const generateId = (): string => {
+  return `server-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+};
+
+// Get all saved servers
+export const getServers = (): ServerConfig[] => {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    if (!data) return [];
+    return JSON.parse(data);
+  } catch {
+    return [];
+  }
+};
+
+// Save all servers
+const saveServers = (servers: ServerConfig[]): void => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(servers));
+};
+
+// Get active server ID
+export const getActiveServerId = (): string | null => {
+  return localStorage.getItem(ACTIVE_SERVER_KEY);
+};
+
+// Set active server ID
+export const setActiveServerId = (id: string | null): void => {
+  if (id) {
+    localStorage.setItem(ACTIVE_SERVER_KEY, id);
+    // Update last used timestamp
+    const servers = getServers();
+    const updated = servers.map(s => 
+      s.id === id ? { ...s, lastUsed: new Date().toISOString() } : s
+    );
+    saveServers(updated);
+  } else {
+    localStorage.removeItem(ACTIVE_SERVER_KEY);
+  }
+};
+
+// Get the active server config
+export const getActiveServer = (): ServerConfig | null => {
+  const activeId = getActiveServerId();
+  if (!activeId) return null;
+  
+  const servers = getServers();
+  return servers.find(s => s.id === activeId) || null;
+};
+
+// Add a new server
+export const addServer = (config: Omit<ServerConfig, 'id' | 'createdAt'>): ServerConfig => {
+  const servers = getServers();
+  
+  const newServer: ServerConfig = {
+    ...config,
+    id: generateId(),
+    createdAt: new Date().toISOString(),
+  };
+  
+  servers.push(newServer);
+  saveServers(servers);
+  
+  // If this is the first server, make it active
+  if (servers.length === 1) {
+    setActiveServerId(newServer.id);
+  }
+  
+  return newServer;
+};
+
+// Update an existing server
+export const updateServer = (id: string, updates: Partial<Omit<ServerConfig, 'id' | 'createdAt'>>): ServerConfig | null => {
+  const servers = getServers();
+  const index = servers.findIndex(s => s.id === id);
+  
+  if (index === -1) return null;
+  
+  servers[index] = {
+    ...servers[index],
+    ...updates,
+  };
+  
+  saveServers(servers);
+  return servers[index];
+};
+
+// Delete a server
+export const deleteServer = (id: string): boolean => {
+  const servers = getServers();
+  const filtered = servers.filter(s => s.id !== id);
+  
+  if (filtered.length === servers.length) return false;
+  
+  saveServers(filtered);
+  
+  // If we deleted the active server, clear active or set to first available
+  if (getActiveServerId() === id) {
+    if (filtered.length > 0) {
+      setActiveServerId(filtered[0].id);
+    } else {
+      setActiveServerId(null);
+    }
+  }
+  
+  return true;
+};
+
+// Migrate old single-server config to new multi-server format
+export const migrateOldConfig = (): void => {
+  const servers = getServers();
+  if (servers.length > 0) return; // Already migrated
+  
+  // Check for old config
+  const oldApiKey = localStorage.getItem('sst-api-key');
+  const oldApiUrl = localStorage.getItem('sst-api-url');
+  
+  if (oldApiKey) {
+    const migratedServer = addServer({
+      name: 'Default Server',
+      apiUrl: oldApiUrl || 'http://localhost:3001',
+      apiKey: oldApiKey,
+    });
+    
+    setActiveServerId(migratedServer.id);
+    
+    // Clean up old keys
+    localStorage.removeItem('sst-api-key');
+    localStorage.removeItem('sst-api-url');
+  }
+};
+
+// Export all functions as a manager object too
+export const serverManager = {
+  getServers,
+  getActiveServerId,
+  setActiveServerId,
+  getActiveServer,
+  addServer,
+  updateServer,
+  deleteServer,
+  migrateOldConfig,
+};
+
+export default serverManager;

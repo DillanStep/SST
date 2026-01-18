@@ -1,0 +1,432 @@
+/**
+ * @file App.tsx
+ * @description Main application component - Root layout and navigation
+ * 
+ * This is the root component of the SST Dashboard React application.
+ * It handles routing, authentication state, and the main layout structure.
+ * 
+ * @author SST Development Team
+ * @license Non-Commercial Open Source - See LICENSE for terms
+ * @version 1.0.0
+ * @lastUpdated 2025-01-15
+ * 
+ * FEATURES:
+ * - Tab-based navigation between dashboard sections
+ * - Responsive sidebar with mobile menu
+ * - Authentication state management
+ * - Server connection status display
+ * - Role-based feature visibility
+ * 
+ * TABS/VIEWS:
+ * - dashboard  - Main overview with stats
+ * - items      - Item search and granting
+ * - players    - Online player management
+ * - map        - Full-page position map
+ * - vehicles   - Vehicle tracking system
+ * - market     - Expansion market editor
+ * - economy    - Types.xml economy analysis
+ * - logs       - Server log viewer
+ * - history    - Player history lookup
+ * - users      - User management (admin)
+ * - settings   - Server configuration
+ * 
+ * STATE:
+ * - isConnected: API connection status
+ * - activeTab: Currently selected view
+ * - user: Authenticated user info
+ * 
+ * HOW TO EXTEND:
+ * 1. Add new TabType to the union type
+ * 2. Add navigation item to sidebar
+ * 3. Add case to renderContent() switch
+ * 4. Import and use your new component
+ */
+import { useState, useEffect, useCallback } from 'react';
+import { LayoutDashboard, Search, Users, Settings, Menu, X, Server, Map, Store, FileText, History, TrendingUp, Shield, LogOut, Car } from 'lucide-react';
+import { PlayerDashboard, ItemSearch, PlayerManager, FullPageMap, ServerSettings, MarketEditor, LogViewer, PlayerHistory, ConnectionBar, EconomyDashboard, LoginPage, UserManagement, VehicleDashboard } from './components';
+import { getActiveServer } from './services/serverManager';
+import { checkAuth, logout, type User } from './services/auth';
+
+type TabType = 'dashboard' | 'items' | 'players' | 'map' | 'vehicles' | 'market' | 'economy' | 'logs' | 'history' | 'users' | 'settings';
+
+function App() {
+  const [isConnected, setIsConnected] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeServerName, setActiveServerName] = useState<string>('');
+  
+  // Auth state
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  // Check auth on mount
+  useEffect(() => {
+    let didFinish = false;
+    
+    const checkSession = async () => {
+      try {
+        const result = await checkAuth();
+        if (result?.user) {
+          setUser(result.user);
+        }
+      } catch (err) {
+        console.error('Auth check failed:', err);
+      } finally {
+        didFinish = true;
+        setAuthChecking(false);
+      }
+    };
+    
+    // Safety timeout - don't stay on loading screen forever
+    const safetyTimeout = setTimeout(() => {
+      if (!didFinish) {
+        console.warn('Auth check timed out, proceeding to login');
+        setAuthChecking(false);
+      }
+    }, 8000);
+    
+    checkSession();
+    
+    return () => clearTimeout(safetyTimeout);
+  }, []);
+
+  // Handle login
+  const handleLogin = (loggedInUser: User) => {
+    setUser(loggedInUser);
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // Ignore errors
+    }
+    setUser(null);
+    setIsConnected(false);
+  };
+
+  // Load active server name
+  const loadActiveServerName = useCallback(() => {
+    const server = getActiveServer();
+    setActiveServerName(server?.name || '');
+  }, []);
+
+  useEffect(() => {
+    loadActiveServerName();
+  }, [loadActiveServerName]);
+
+  // Handle server change from settings
+  const handleServerChange = useCallback(() => {
+    loadActiveServerName();
+  }, [loadActiveServerName]);
+
+  const tabs: { id: TabType; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
+    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
+    { id: 'map', label: 'Live Map', icon: <Map size={20} /> },
+    { id: 'items', label: 'Item Search', icon: <Search size={20} /> },
+    { id: 'players', label: 'Player Manager', icon: <Users size={20} /> },
+    { id: 'vehicles', label: 'Vehicles', icon: <Car size={20} /> },
+    { id: 'history', label: 'Player History', icon: <History size={20} /> },
+    { id: 'economy', label: 'Economy', icon: <TrendingUp size={20} /> },
+    { id: 'market', label: 'Market Editor', icon: <Store size={20} /> },
+    { id: 'logs', label: 'Server Logs', icon: <FileText size={20} /> },
+    { id: 'users', label: 'Users', icon: <Shield size={20} />, adminOnly: true },
+    { id: 'settings', label: 'Settings', icon: <Settings size={20} /> },
+  ];
+
+  // Filter tabs based on user role
+  const visibleTabs = tabs.filter(tab => !tab.adminOnly || user?.role === 'admin');
+
+  // Show loading spinner while checking auth
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center animate-fade-in">
+          <div className="w-12 h-12 border-3 border-surface-200 border-t-surface-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-surface-500">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!user) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
+  // Full-page modes (map, history, vehicles)
+  const isFullPageMode = (activeTab === 'map' || activeTab === 'history' || activeTab === 'vehicles') && isConnected;
+
+  if (isFullPageMode) {
+    return (
+      <div className="h-screen w-screen flex flex-col">
+        {/* Minimal Top Bar */}
+        <div className="h-14 bg-white border-b border-surface-200 flex items-center px-4 gap-4 flex-shrink-0 z-[1002]">
+          <div className="flex items-center">
+            <img 
+              src="/banners/Banner-03.png" 
+              alt="SST Dashboard" 
+              className="h-10 w-auto object-contain"
+            />
+          </div>
+          
+          {/* Quick Nav */}
+          <div className="flex-1 flex items-center gap-1 overflow-x-auto">
+            {visibleTabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'bg-surface-800 text-white shadow-sm'
+                    : 'text-surface-600 hover:bg-surface-100 hover:text-surface-800'
+                }`}
+              >
+                {tab.icon}
+                <span className="hidden lg:inline">{tab.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* User Info & Logout */}
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-surface-600 hidden md:block">{user.username}</span>
+            <button
+              onClick={handleLogout}
+              className="p-2 text-surface-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200"
+              title="Logout"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+
+          {/* Connection Bar */}
+          <ConnectionBar 
+            isConnected={isConnected}
+            onConnected={() => setIsConnected(true)}
+            onDisconnected={() => setIsConnected(false)}
+          />
+        </div>
+        
+        {/* Full Page Content */}
+        <div className="flex-1">
+          {activeTab === 'map' && <FullPageMap isConnected={isConnected} />}
+          {activeTab === 'history' && <PlayerHistory isConnected={isConnected} />}
+          {activeTab === 'vehicles' && <VehicleDashboard isConnected={isConnected} />}
+        </div>
+      </div>
+    );
+  }
+
+  // Standard layout for other tabs
+  return (
+    <div className="min-h-screen bg-surface-50 flex">
+      {/* Sidebar - Desktop */}
+      <aside className={`hidden md:flex flex-col bg-white border-r border-surface-200 transition-all duration-300 ease-out sticky top-0 h-screen ${sidebarOpen ? 'w-64' : 'w-20'}`}>
+        {/* Logo */}
+        <div className="flex items-center justify-center px-4 h-16 border-b border-surface-200">
+          <img 
+            src="/banners/Banner-03.png" 
+            alt="SST Dashboard" 
+            className={`h-10 w-auto object-contain transition-all duration-300 ${sidebarOpen ? 'max-w-full' : 'max-w-12'}`}
+          />
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 py-4 px-3 overflow-y-auto">
+          <ul className="space-y-1">
+            {visibleTabs.map((tab) => (
+              <li key={tab.id}>
+                <button
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    activeTab === tab.id
+                      ? 'bg-surface-800 text-white shadow-sm'
+                      : 'text-surface-600 hover:bg-surface-100 hover:text-surface-800'
+                  }`}
+                >
+                  <span className="flex-shrink-0">{tab.icon}</span>
+                  {sidebarOpen && <span>{tab.label}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        {/* User Info */}
+        <div className="p-4 border-t border-surface-200">
+          {sidebarOpen && (
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-xl bg-surface-100 flex items-center justify-center">
+                <span className="text-surface-600 font-semibold text-sm">
+                  {user.username.charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-surface-800 truncate">{user.username}</div>
+                <div className="text-xs text-surface-500 capitalize">{user.role}</div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-2 text-surface-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200"
+                title="Logout"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          )}
+          {!sidebarOpen && (
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center p-2.5 text-surface-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 mb-3"
+              title="Logout"
+            >
+              <LogOut size={18} />
+            </button>
+          )}
+          {sidebarOpen && activeServerName && (
+            <div className="text-xs text-surface-400 mb-2 truncate px-1">
+              {activeServerName}
+            </div>
+          )}
+          <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm ${
+            isConnected 
+              ? 'bg-emerald-50 text-emerald-700' 
+              : 'bg-surface-100 text-surface-600'
+          }`}>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isConnected ? 'bg-emerald-500' : 'bg-surface-400'}`} />
+            {sidebarOpen && <span>{isConnected ? 'Connected' : 'Disconnected'}</span>}
+          </div>
+        </div>
+
+        {/* Collapse Toggle */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="p-4 border-t border-surface-200 text-surface-500 hover:text-surface-700 hover:bg-surface-50 transition-all duration-200"
+        >
+          <Settings size={20} className={`transition-transform duration-300 ${sidebarOpen ? '' : 'rotate-180'}`} />
+        </button>
+      </aside>
+
+      {/* Mobile Header */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-surface-200">
+        <div className="flex items-center justify-between px-4 h-14">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-surface-800 rounded-xl">
+              <Server className="h-4 w-4 text-white" />
+            </div>
+            <h1 className="text-base font-bold text-surface-800">SST Dashboard</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Mini connection indicator for mobile */}
+            <div className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-surface-400'}`} />
+            <button
+              className="p-2 text-surface-600 hover:text-surface-800 hover:bg-surface-100 rounded-xl transition-all"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Navigation */}
+        {mobileMenuOpen && (
+          <div className="bg-white border-t border-surface-200 px-4 py-3 space-y-1 animate-fade-in-down">
+            {visibleTabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  activeTab === tab.id
+                    ? 'bg-surface-800 text-white'
+                    : 'text-surface-600 hover:bg-surface-100 hover:text-surface-800'
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+            {/* Logout button for mobile */}
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-red-600 hover:bg-red-50 transition-all duration-200"
+            >
+              <LogOut size={20} />
+              Logout ({user.username})
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Main Content */}
+      <main className="flex-1 md:overflow-auto">
+        {/* Top Bar with Connection */}
+        <div className="hidden md:flex items-center justify-end px-6 py-4 border-b border-surface-200 bg-white">
+          <ConnectionBar 
+            isConnected={isConnected}
+            onConnected={() => setIsConnected(true)}
+            onDisconnected={() => setIsConnected(false)}
+          />
+        </div>
+
+        <div className="p-4 sm:p-5 lg:p-6 pt-18 md:pt-5 space-y-5">
+          {/* Tab Content with animations */}
+          {activeTab === 'dashboard' && (
+            <PlayerDashboard isConnected={isConnected} />
+          )}
+
+          {activeTab === 'items' && (
+            <ItemSearch isConnected={isConnected} />
+          )}
+
+          {activeTab === 'players' && (
+            <PlayerManager isConnected={isConnected} />
+          )}
+
+          {activeTab === 'market' && (
+            <MarketEditor isConnected={isConnected} />
+          )}
+
+          {activeTab === 'economy' && (
+            <EconomyDashboard isConnected={isConnected} />
+          )}
+
+          {activeTab === 'logs' && (
+            <LogViewer isConnected={isConnected} />
+          )}
+
+          {activeTab === 'users' && (
+            <UserManagement currentUser={user} />
+          )}
+
+          {activeTab === 'history' && !isConnected && (
+            <div className="bg-white rounded-2xl shadow-sm border border-surface-200 p-8 sm:p-12 text-center animate-fade-in">
+              <History size={48} className="mx-auto mb-4 text-surface-300\" />
+              <p className="text-surface-500">Connect to the API to view player history.</p>
+            </div>
+          )}
+
+          {/* Map prompt when not connected */}
+          {activeTab === 'map' && !isConnected && (
+            <div className="bg-white rounded-2xl shadow-sm border border-surface-200 p-8 sm:p-12 text-center animate-fade-in">
+              <Map size={48} className="mx-auto mb-4 text-surface-300" />
+              <p className="text-surface-500">Connect to the API to view the live map.</p>
+            </div>
+          )}
+
+          {/* Settings Tab */}
+          {activeTab === 'settings' && (
+            <ServerSettings onServerChange={handleServerChange} />
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default App;

@@ -1,0 +1,35 @@
+{
+  "name": "sst-node-api",
+  "version": "1.0.0",
+  "description": "SST Node API - Bridge between Aspire and DayZ server",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": [
+    "dayz",
+    "dayz-server",
+    "server-management",
+    "admin-dashboard",
+    "game-server",
+    "nodejs",
+    "express",
+    "rest-api",
+    "sqlite",
+    "expansion-mod",
+    "server-tools"
+  ],
+  "author": "",
+  "license": "SEE LICENSE IN LICENSE",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.6.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.3"
+  }
+}

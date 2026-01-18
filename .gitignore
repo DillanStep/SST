@@ -16,3 +16,29 @@ dayz.bin
 .idea/
 
 Missions/**/storage_*
+
+# Local reference copies (not for publishing)
+Script Refrences/
+
+# --- Open-source safety (apps) ---
+# Secrets
+.env
+.env.*
+!.env.example
+!.env.docker
+
+# Node
+node_modules/
+dist/
+
+# Databases (SQLite)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# App runtime folders (generated/local)
+apps/api/data/
+apps/api/profiles/

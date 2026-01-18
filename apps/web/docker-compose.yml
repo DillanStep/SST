@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  sst-dashboard:
+    build: .
+    container_name: sst-dashboard
+    ports:
+      - "8080:80"
+    environment:
+      # Set API_URL to your DayZ server's API endpoint
+      # Example: http://192.168.1.100:3001 or http://your-server-ip:3001
+      - API_URL=${API_URL:-http://localhost:3001}
+    restart: unless-stopped
+    extra_hosts:
+      # This allows the container to access the host machine
+      # On Linux, you may need to use your actual host IP instead
+      - "host.docker.internal:host-gateway"
