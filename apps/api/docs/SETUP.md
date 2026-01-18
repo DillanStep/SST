@@ -115,6 +115,70 @@ DayZServer/
 
 ---
 
+## Hosted Providers (Nitrado / HostHavoc)
+
+If your DayZ server is hosted and you only have file access over FTP/FTPS, the API can read/write the same SST JSON files remotely.
+
+### Recommended: use a provider config file
+
+1. Copy the template:
+
+```bash
+cp ./config/host-providers.example.json ./config/host-providers.json
+```
+
+2. Edit `./config/host-providers.json` with your provider details.
+
+You can also put your SST paths in this same file (recommended) under `paths` using environment variable names (e.g., `SST_PATH`, `API_PATH`). The API applies these at startup so you don’t need to duplicate them in `.env`.
+
+This file is ignored by git (so you don’t accidentally publish credentials). You can select which provider to use via:
+
+```env
+HOST_PROVIDER=my-host
+```
+
+Or set `active` inside the config file.
+
+### 1. Enable the FTP storage backend
+
+In `.env`:
+
+```env
+# Storage backend: local (default) or ftp
+STORAGE_BACKEND=ftp
+
+# FTP connection
+FTP_HOST=example.your-provider.com
+FTP_PORT=21
+FTP_USER=your-ftp-username
+FTP_PASSWORD=your-ftp-password
+
+# Set true for FTPS if your provider requires it
+FTP_SECURE=false
+
+# Optional: prefix for all relative paths (default: "/")
+FTP_ROOT=/
+```
+
+### 2. Use server-relative paths (no Windows drive letters)
+
+When `STORAGE_BACKEND=ftp`, all DayZ/SST paths must be server-relative paths that exist on the FTP server:
+
+```env
+# Examples (these vary by provider)
+DAYZ_PROFILE_PATH=/profiles
+SST_PATH=/profiles/SST
+
+# If you use mission parsing / economy tools:
+MISSION_FOLDER=/mpmissions/dayzOffline.chernarusplus
+```
+
+Notes:
+- Do not use `C:/...` or `D:/...` with the FTP backend.
+- If your provider offers SFTP (SSH) instead of FTP/FTPS, use `STORAGE_BACKEND=sftp` and configure `SFTP_HOST`, `SFTP_PORT`, `SFTP_USER`, `SFTP_PASSWORD` (or set them in `host-providers.json`).
+
+---
+
 ## Security Configuration
 
 ### JWT Secret

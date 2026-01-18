@@ -51,3 +51,4 @@ export { EconomyDashboard } from './EconomyDashboard';
 export { LoginPage } from './LoginPage';
 export { UserManagement } from './UserManagement';
 export { VehicleDashboard } from './VehicleDashboard';
+export { SetupWizard } from './SetupWizard';

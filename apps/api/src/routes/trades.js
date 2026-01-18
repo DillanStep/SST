@@ -36,7 +36,7 @@
  * 4. Add suspicious trade pattern detection
  */
 import { Router } from "express";
-import { readFile } from "fs/promises";
+import { readFile } from "../storage/fs.js";
 import { paths } from "../config.js";
 
 const router = Router();

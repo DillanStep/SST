@@ -47,6 +47,8 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { paths } from "../config.js";
+import { readFile, readdir, unlink } from "../storage/fs.js";
+import { joinStoragePath } from "../utils/storagePath.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -170,12 +172,16 @@ async function archiveTrades(archiveDate) {
   const db = getArchiveDb();
   const tradesPath = paths.trades;
   let totalArchived = 0;
-  
-  if (!fs.existsSync(tradesPath)) {
-    return { archived: 0, files: 0 };
+
+  let files = [];
+  try {
+    files = (await readdir(tradesPath)).filter((f) => f.endsWith("_trades.json"));
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      return { archived: 0, files: 0 };
+    }
+    throw err;
   }
-  
-  const files = fs.readdirSync(tradesPath).filter(f => f.endsWith('_trades.json'));
   
   const insertTrade = db.prepare(`
     INSERT INTO archived_trades (steam_id, timestamp, trade_type, trader_name, zone_name, item_class, item_display, quantity, price, currency, archive_date)
@@ -202,13 +208,13 @@ async function archiveTrades(archiveDate) {
   
   for (const file of files) {
     try {
-      const filePath = path.join(tradesPath, file);
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const filePath = joinStoragePath(tradesPath, file);
+      const content = await readFile(filePath, "utf-8");
       const data = JSON.parse(content);
-      
+
       const steamId = file.replace('_trades.json', '');
       const trades = [];
-      
+
       // Process purchases
       if (data.purchases && Array.isArray(data.purchases)) {
         for (const purchase of data.purchases) {
@@ -262,12 +268,16 @@ async function archiveLifeEvents(archiveDate) {
   const db = getArchiveDb();
   const lifeEventsPath = paths.lifeEvents;
   let totalArchived = 0;
-  
-  if (!fs.existsSync(lifeEventsPath)) {
-    return { archived: 0, files: 0 };
+
+  let files = [];
+  try {
+    files = (await readdir(lifeEventsPath)).filter((f) => f.endsWith(".json"));
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      return { archived: 0, files: 0 };
+    }
+    throw err;
   }
-  
-  const files = fs.readdirSync(lifeEventsPath).filter(f => f.endsWith('.json'));
   
   const insertEvent = db.prepare(`
     INSERT INTO archived_life_events (steam_id, timestamp, event_type, data, archive_date)
@@ -288,28 +298,28 @@ async function archiveLifeEvents(archiveDate) {
   
   for (const file of files) {
     try {
-      const filePath = path.join(lifeEventsPath, file);
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const filePath = joinStoragePath(lifeEventsPath, file);
+      const content = await readFile(filePath, "utf-8");
       const data = JSON.parse(content);
-      
-      const steamId = file.replace('.json', '');
+
+      const steamId = file.replace(".json", "");
       const events = [];
-      
+
       // Process each event type
-      const eventTypes = ['deaths', 'connections', 'disconnections', 'spawns'];
+      const eventTypes = ["deaths", "connections", "disconnections", "spawns"];
       for (const eventType of eventTypes) {
         if (data[eventType] && Array.isArray(data[eventType])) {
           for (const event of data[eventType]) {
             events.push({
               steam_id: steamId,
               timestamp: event.timestamp || new Date().toISOString(),
-              event_type: eventType.replace(/s$/, ''), // Remove trailing 's'
-              data: event
+              event_type: eventType.replace(/s$/, ""), // Remove trailing 's'
+              data: event,
             });
           }
         }
       }
-      
+
       if (events.length > 0) {
         insertMany(events);
         totalArchived += events.length;
@@ -327,12 +337,16 @@ async function archiveEvents(archiveDate) {
   const db = getArchiveDb();
   const eventsPath = paths.events;
   let totalArchived = 0;
-  
-  if (!fs.existsSync(eventsPath)) {
-    return { archived: 0, files: 0 };
+
+  let files = [];
+  try {
+    files = (await readdir(eventsPath)).filter((f) => f.endsWith(".json"));
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      return { archived: 0, files: 0 };
+    }
+    throw err;
   }
-  
-  const files = fs.readdirSync(eventsPath).filter(f => f.endsWith('.json'));
   
   const insertEvent = db.prepare(`
     INSERT INTO archived_events (steam_id, timestamp, event_type, item_class, item_display, quantity, position_x, position_y, position_z, data, archive_date)
@@ -359,8 +373,8 @@ async function archiveEvents(archiveDate) {
   
   for (const file of files) {
     try {
-      const filePath = path.join(eventsPath, file);
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const filePath = joinStoragePath(eventsPath, file);
+      const content = await readFile(filePath, "utf-8");
       const data = JSON.parse(content);
       
       const steamId = file.replace('.json', '');
@@ -400,24 +414,30 @@ async function archiveEvents(archiveDate) {
 }
 
 // Clear JSON files after archiving
-function clearJsonFiles(folderPath, pattern = '.json') {
-  if (!fs.existsSync(folderPath)) {
-    return 0;
+async function clearJsonFiles(folderPath, pattern = ".json") {
+  let files = [];
+  try {
+    files = (await readdir(folderPath)).filter((f) => f.endsWith(pattern));
+  } catch (err) {
+    if (err?.code === "ENOENT") return 0;
+    throw err;
   }
-  
-  const files = fs.readdirSync(folderPath).filter(f => f.endsWith(pattern));
+
   let cleared = 0;
-  
+
   for (const file of files) {
     try {
-      const filePath = path.join(folderPath, file);
-      fs.unlinkSync(filePath);
+      const filePath = joinStoragePath(folderPath, file);
+      await unlink(filePath);
       cleared++;
     } catch (err) {
-      console.error(`Error deleting ${file}:`, err.message);
+      // If the file disappeared between list and delete, that's fine.
+      if (err?.code !== "ENOENT") {
+        console.error(`Error deleting ${file}:`, err.message);
+      }
     }
   }
-  
+
   return cleared;
 }
 
@@ -439,16 +459,16 @@ export async function runArchive(clearFiles = true) {
   };
   
   try {
-    // Archive each data type
+      const filePath = joinStoragePath(eventsPath, file);
     result.trades = await archiveTrades(archiveDate);
     result.lifeEvents = await archiveLifeEvents(archiveDate);
     result.events = await archiveEvents(archiveDate);
     
     // Clear JSON files if requested
     if (clearFiles) {
-      result.filesCleared += clearJsonFiles(paths.trades, '_trades.json');
-      result.filesCleared += clearJsonFiles(paths.lifeEvents, '.json');
-      result.filesCleared += clearJsonFiles(paths.events, '.json');
+      result.filesCleared += await clearJsonFiles(paths.trades, "_trades.json");
+      result.filesCleared += await clearJsonFiles(paths.lifeEvents, ".json");
+      result.filesCleared += await clearJsonFiles(paths.events, ".json");
     }
     
     result.duration = Date.now() - startTime;
@@ -554,7 +574,7 @@ export const archiveQueries = {
       WHERE 1=1
     `;
     const params = [];
-    
+
     if (startDate) {
       query += ` AND timestamp >= ?`;
       params.push(startDate);

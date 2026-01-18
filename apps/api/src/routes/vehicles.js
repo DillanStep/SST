@@ -36,37 +36,15 @@
  */
 
 import express from "express";
-import { readFile, writeFile, mkdir } from "fs/promises";
-import { existsSync } from "fs";
-import { join } from "path";
+import { mkdir, readFile, stat, writeFile } from "../storage/fs.js";
 import { paths } from "../config.js";
+import { joinStoragePath } from "../utils/storagePath.js";
 
 const router = express.Router();
-
-// Ensure directories exist (with error handling)
-const ensureDirectories = async () => {
-  try {
-    const vehiclesDir = join(paths.sst, "vehicles");
-    const apiDir = paths.api;
-    
-    if (!existsSync(vehiclesDir)) {
-      await mkdir(vehiclesDir, { recursive: true });
-    }
-    if (!existsSync(apiDir)) {
-      await mkdir(apiDir, { recursive: true });
-    }
-  } catch (err) {
-    console.error(`[Vehicles] Error creating directories:`, err.message);
-    // Don't throw - directories might already exist or we'll handle missing files later
-  }
-};
 
 // Helper to safely read and parse JSON files
 const safeReadJson = async (filePath, defaultValue = []) => {
   try {
-    if (!existsSync(filePath)) {
-      return defaultValue;
-    }
     const content = await readFile(filePath, "utf8");
     if (!content || content.trim() === "") {
       return defaultValue;
@@ -78,12 +56,25 @@ const safeReadJson = async (filePath, defaultValue = []) => {
   }
 };
 
+const exists = async (filePath) => {
+  try {
+    await stat(filePath);
+    return true;
+  } catch (err) {
+    if (err?.code === "ENOENT") return false;
+    throw err;
+  }
+};
+
+const ensureDirectories = async () => {
+  await mkdir(paths.api, { recursive: true });
+  await mkdir(joinStoragePath(paths.sst, "vehicles"), { recursive: true });
+};
+
 // GET /vehicles - List all tracked vehicles
 router.get("/", async (req, res) => {
   try {
-    await ensureDirectories();
-    
-    const trackedFile = join(paths.sst, "vehicles", "tracked.json");
+    const trackedFile = joinStoragePath(paths.sst, "vehicles", "tracked.json");
     const vehicles = await safeReadJson(trackedFile, []);
     
     // Ensure vehicles is an array
@@ -131,7 +122,7 @@ router.get("/", async (req, res) => {
 // GET /vehicles/delete-results/all - Get vehicle deletion results
 router.get("/delete-results/all", async (req, res) => {
   try {
-    const resultsFile = join(paths.api, "vehicle_delete_results.json");
+    const resultsFile = joinStoragePath(paths.api, "vehicle_delete_results.json");
     const data = await safeReadJson(resultsFile, { requests: [] });
     
     res.json({
@@ -148,7 +139,7 @@ router.get("/purchases/all", async (req, res) => {
   try {
     await ensureDirectories();
     
-    const purchasesFile = join(paths.sst, "vehicles", "purchases.json");
+    const purchasesFile = joinStoragePath(paths.sst, "vehicles", "purchases.json");
     const purchases = await safeReadJson(purchasesFile, []);
     
     // Ensure purchases is an array
@@ -190,7 +181,7 @@ router.get("/purchases/all", async (req, res) => {
 // GET /vehicles/key-results/all - Get key generation results
 router.get("/key-results/all", async (req, res) => {
   try {
-    const resultsFile = join(paths.api, "key_grants_results.json");
+    const resultsFile = joinStoragePath(paths.api, "key_grants_results.json");
     const data = await safeReadJson(resultsFile, { requests: [] });
     
     res.json({
@@ -207,7 +198,7 @@ router.get("/by-owner/:ownerId", async (req, res) => {
   try {
     const { ownerId } = req.params;
     
-    const trackedFile = join(paths.sst, "vehicles", "tracked.json");
+    const trackedFile = joinStoragePath(paths.sst, "vehicles", "tracked.json");
     const vehicles = await safeReadJson(trackedFile, []);
     
     const owned = vehicles.filter(v => v.ownerId === ownerId);
@@ -225,7 +216,7 @@ router.get("/by-owner/:ownerId", async (req, res) => {
 // GET /vehicles/positions/all - Get all vehicle positions for map display
 router.get("/positions/all", async (req, res) => {
   try {
-    const trackedFile = join(paths.sst, "vehicles", "tracked.json");
+    const trackedFile = joinStoragePath(paths.sst, "vehicles", "tracked.json");
     const vehicles = await safeReadJson(trackedFile, []);
     
     // Extract just position data for map display
@@ -260,7 +251,7 @@ router.get("/:vehicleId", async (req, res) => {
   try {
     const { vehicleId } = req.params;
     
-    const trackedFile = join(paths.sst, "vehicles", "tracked.json");
+    const trackedFile = joinStoragePath(paths.sst, "vehicles", "tracked.json");
     const vehicles = await safeReadJson(trackedFile, []);
     
     if (vehicles.length === 0) {
@@ -295,10 +286,10 @@ router.delete("/:vehicleId", async (req, res) => {
     }
     
     // Check if vehicle exists in tracked list
-    const trackedFile = join(paths.sst, "vehicles", "tracked.json");
+    const trackedFile = joinStoragePath(paths.sst, "vehicles", "tracked.json");
     let vehicleInfo = null;
     
-    if (existsSync(trackedFile)) {
+    if (await exists(trackedFile)) {
       const content = await readFile(trackedFile, "utf8");
       const vehicles = JSON.parse(content);
       vehicleInfo = vehicles.find(v => v.vehicleId === vehicleId);
@@ -320,10 +311,10 @@ router.delete("/:vehicleId", async (req, res) => {
     };
     
     // Load existing queue or create new one
-    const queueFile = join(paths.api, "vehicle_delete.json");
+    const queueFile = joinStoragePath(paths.api, "vehicle_delete.json");
     let queue = { requests: [] };
     
-    if (existsSync(queueFile)) {
+    if (await exists(queueFile)) {
       try {
         const content = await readFile(queueFile, "utf8");
         queue = JSON.parse(content);
@@ -374,7 +365,7 @@ router.post("/generate-key", async (req, res) => {
     }
     
     // Check if vehicle exists in tracked list
-    const trackedFile = join(paths.sst, "vehicles", "tracked.json");
+    const trackedFile = joinStoragePath(paths.sst, "vehicles", "tracked.json");
     const vehicles = await safeReadJson(trackedFile, []);
     const vehicle = vehicles.find(v => v.vehicleId === vehicleId);
     
@@ -394,7 +385,7 @@ router.post("/generate-key", async (req, res) => {
     };
     
     // Load existing queue or create new one
-    const queueFile = join(paths.api, "key_grants.json");
+    const queueFile = joinStoragePath(paths.api, "key_grants.json");
     const queue = await safeReadJson(queueFile, { requests: [] });
     if (!queue.requests) queue.requests = [];
     

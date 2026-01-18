@@ -1,0 +1,866 @@
+/**
+ * @file SetupWizard.tsx
+ * @description First-run setup wizard for SST Dashboard
+ * 
+ * Multi-step wizard that guides users through:
+ * 1. Hosting type selection (dedicated vs hosting provider)
+ * 2. Connection configuration (SFTP/FTP for remote, paths for local)
+ * 3. Connection testing and directory verification
+ * 4. API key generation
+ * 5. Server naming and admin account creation
+ * 
+ * @author SST Development Team
+ * @license Non-Commercial Open Source - See LICENSE for terms
+ * @version 1.0.0
+ */
+import React, { useState } from 'react';
+import { 
+  Server, Cloud, HardDrive, ChevronRight, ChevronLeft, Check, 
+  AlertCircle, RefreshCw, Key, User, Lock, Wifi, 
+  CheckCircle2, XCircle
+} from 'lucide-react';
+import { Button, Input } from '../ui';
+
+type HostingType = 'provider' | 'dedicated' | null;
+type ConnectionStatus = 'idle' | 'testing' | 'success' | 'error';
+
+interface SetupWizardProps {
+  apiUrl: string;
+  onComplete: (config: {
+    serverName: string;
+    apiKey: string;
+    username: string;
+  }) => void;
+}
+
+export const SetupWizard: React.FC<SetupWizardProps> = ({ apiUrl, onComplete }) => {
+  // Wizard step (1-5)
+  const [step, setStep] = useState(1);
+  
+  // Step 1: Hosting type
+  const [hostingType, setHostingType] = useState<HostingType>(null);
+  
+  // Step 2: Connection details
+  const [backend, setBackend] = useState<'sftp' | 'ftp' | 'local'>('sftp');
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('22');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [remoteRoot, setRemoteRoot] = useState('/');
+  const [sstPath, setSstPath] = useState('');
+  const [profilesPath, setProfilesPath] = useState('');
+  const [localPath, setLocalPath] = useState('');
+  
+  // URL paste helper
+  const [pasteUrl, setPasteUrl] = useState('');
+  
+  // Step 3: Connection test
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testDetails, setTestDetails] = useState<{
+    onlineCount?: number;
+    playersLen?: number;
+    fileSize?: number;
+  } | null>(null);
+  
+  // Step 4: API Key
+  const [apiKey, setApiKey] = useState('');
+  
+  // Step 5: Server name and admin
+  const [serverName, setServerName] = useState('My DayZ Server');
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminPasswordConfirm, setAdminPasswordConfirm] = useState('');
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
+  
+  // General
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+
+  // Parse pasted URL (for hosting providers like HostHavoc)
+  const parseUrl = () => {
+    const raw = pasteUrl.trim();
+    if (!raw) return;
+
+    try {
+      let pathPart = raw;
+      
+      // Check if it's a full URL
+      if (/^[a-zA-Z]+:\/\//.test(raw)) {
+        const u = new URL(raw);
+        if (u.hostname) setHost(u.hostname);
+        if (u.port) setPort(u.port);
+        const userFromUrl = (u.username || '').trim();
+        if (userFromUrl) setUsername(userFromUrl);
+        pathPart = u.pathname;
+      }
+
+      // Clean up path
+      pathPart = pathPart.replace(/\\/g, '/');
+      if (!pathPart.startsWith('/')) pathPart = `/${pathPart}`;
+      // Strip known SST subdirectories so we get the SST root
+      pathPart = pathPart.replace(/\/api\/online_players\.json$/i, '');
+      pathPart = pathPart.replace(/\/(api|events|inventories|life_events|trades)\/?$/i, '');
+
+      const parts = pathPart.split('/').filter(Boolean);
+      if (parts.length >= 2) {
+        // First part is the remote root (e.g., 104.234.251.153_2332)
+        // Rest is the SST path (e.g., HostHavocDayZServer/SST)
+        setRemoteRoot(`/${parts[0]}`);
+        setSstPath(parts.slice(1).join('/'));
+      } else if (parts.length === 1) {
+        // Only one part - treat as SST path with root /
+        setRemoteRoot('/');
+        setSstPath(parts[0]);
+      }
+    } catch {
+      setError('Could not parse URL. Enter details manually.');
+    }
+  };
+
+  // Test connection to the server
+  const testConnection = async () => {
+    setConnectionStatus('testing');
+    setTestResult(null);
+    setTestDetails(null);
+    setError(null);
+
+    try {
+      // Normalize paths - ensure sstPath doesn't include the remoteRoot
+      let testSstPath = sstPath.replace(/\\/g, '/').replace(/^\/+/, '');
+      const normalizedRoot = remoteRoot.replace(/\\/g, '/').replace(/^\/+/, '');
+      
+      // If sstPath starts with the remoteRoot prefix, strip it
+      if (normalizedRoot && normalizedRoot !== '/' && testSstPath.startsWith(normalizedRoot)) {
+        testSstPath = testSstPath.slice(normalizedRoot.length).replace(/^\/+/, '');
+      }
+
+      const payload: any = { 
+        backend: hostingType === 'dedicated' ? 'local' : backend, 
+        sstPath: hostingType === 'dedicated' ? localPath : testSstPath 
+      };
+      
+      if (hostingType === 'provider') {
+        if (backend === 'sftp') {
+          payload.sftp = { host, port: Number(port), username, password, root: remoteRoot };
+        } else if (backend === 'ftp') {
+          payload.ftp = { host, port: Number(port), username, password, root: remoteRoot, secure: true };
+        }
+      }
+
+      const resp = await fetch(`${apiUrl}/setup/test`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await resp.json();
+      
+      if (!resp.ok) {
+        setConnectionStatus('error');
+        setTestResult(json?.details || json?.error || `Test failed (${resp.status})`);
+        return;
+      }
+
+      setConnectionStatus('success');
+      setTestDetails({
+        onlineCount: json?.parsed?.onlineCount,
+        playersLen: json?.parsed?.playersLen,
+        fileSize: json?.stat?.size,
+      });
+      setTestResult('Connection successful! Found SST data files.');
+    } catch (e) {
+      setConnectionStatus('error');
+      setTestResult(e instanceof Error ? e.message : 'Connection failed');
+    }
+  };
+
+  // Save configuration to API .env
+  const saveConfiguration = async () => {
+    setWorking(true);
+    setError(null);
+
+    try {
+      // Normalize paths - ensure sstPath doesn't include the remoteRoot
+      let finalSstPath = sstPath.replace(/\\/g, '/').replace(/^\/+/, '');
+      const normalizedRoot = remoteRoot.replace(/\\/g, '/').replace(/^\/+/, '');
+      
+      // If sstPath starts with the remoteRoot prefix, strip it
+      if (normalizedRoot && normalizedRoot !== '/' && finalSstPath.startsWith(normalizedRoot)) {
+        finalSstPath = finalSstPath.slice(normalizedRoot.length).replace(/^\/+/, '');
+      }
+
+      // Normalize profiles path too
+      let finalProfilesPath = profilesPath.replace(/\\/g, '/').replace(/^\/+/, '');
+      if (normalizedRoot && normalizedRoot !== '/' && finalProfilesPath.startsWith(normalizedRoot)) {
+        finalProfilesPath = finalProfilesPath.slice(normalizedRoot.length).replace(/^\/+/, '');
+      }
+
+      const payload: any = { 
+        backend: hostingType === 'dedicated' ? 'local' : backend, 
+        sstPath: hostingType === 'dedicated' ? localPath : finalSstPath,
+        profilesPath: hostingType === 'dedicated' ? '' : finalProfilesPath
+      };
+      
+      if (hostingType === 'provider') {
+        if (backend === 'sftp') {
+          payload.sftp = { host, port: Number(port), username, password, root: remoteRoot };
+        } else if (backend === 'ftp') {
+          payload.ftp = { host, port: Number(port), username, password, root: remoteRoot, secure: true };
+        }
+      }
+
+      const resp = await fetch(`${apiUrl}/setup/apply`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        const json = await resp.json();
+        throw new Error(json?.error || 'Failed to save configuration');
+      }
+
+      // Fetch the API key
+      const statusResp = await fetch(`${apiUrl}/setup/status`, { 
+        method: 'GET', 
+        credentials: 'include' 
+      });
+      
+      if (statusResp.ok) {
+        const status = await statusResp.json();
+        if (status?.apiKey) {
+          setApiKey(status.apiKey);
+        }
+      }
+
+      setStep(4);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save configuration');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  // Generate a new API key
+  const generateApiKey = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let key = 'sst_';
+    for (let i = 0; i < 32; i++) {
+      key += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setApiKey(key);
+  };
+
+  // Create admin account
+  const createAdmin = async () => {
+    if (adminPassword !== adminPasswordConfirm) {
+      setError('Passwords do not match');
+      return;
+    }
+    if (adminPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+    if (!adminUsername.trim()) {
+      setError('Username is required');
+      return;
+    }
+
+    setCreatingAdmin(true);
+    setError(null);
+
+    try {
+      const resp = await fetch(`${apiUrl}/auth/setup`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        body: JSON.stringify({
+          username: adminUsername.trim(),
+          password: adminPassword,
+        }),
+      });
+
+      if (!resp.ok) {
+        const json = await resp.json();
+        throw new Error(json?.error || 'Failed to create admin account');
+      }
+
+      // Success! Call the completion handler
+      onComplete({
+        serverName,
+        apiKey,
+        username: adminUsername.trim(),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create admin');
+    } finally {
+      setCreatingAdmin(false);
+    }
+  };
+
+  // Step indicator
+  const steps = [
+    { num: 1, label: 'Hosting' },
+    { num: 2, label: 'Connection' },
+    { num: 3, label: 'Verify' },
+    { num: 4, label: 'API Key' },
+    { num: 5, label: 'Account' },
+  ];
+
+  const canProceedStep1 = hostingType !== null;
+  const canProceedStep2 = hostingType === 'dedicated' 
+    ? localPath.trim().length > 0 
+    : (host.trim().length > 0 && sstPath.trim().length > 0);
+  const canProceedStep3 = connectionStatus === 'success';
+  const canProceedStep4 = apiKey.trim().length > 0;
+  const canProceedStep5 = adminUsername.trim().length > 0 && adminPassword.length >= 6 && adminPassword === adminPasswordConfirm;
+
+  return (
+    <div className="min-h-screen bg-surface-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-surface-700 rounded-2xl shadow-lg mb-4">
+            <Server className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-surface-800">SST Dashboard Setup</h1>
+          <p className="text-surface-500 mt-2">Let's configure your DayZ server connection</p>
+        </div>
+
+        {/* Progress Steps */}
+        <div className="flex items-center justify-center mb-8">
+          {steps.map((s, i) => (
+            <React.Fragment key={s.num}>
+              <div className="flex flex-col items-center">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                  step > s.num 
+                    ? 'bg-emerald-500 text-white' 
+                    : step === s.num 
+                      ? 'bg-surface-700 text-white' 
+                      : 'bg-surface-200 text-surface-500'
+                }`}>
+                  {step > s.num ? <Check size={18} /> : s.num}
+                </div>
+                <span className={`text-xs mt-1 ${step >= s.num ? 'text-surface-700' : 'text-surface-400'}`}>
+                  {s.label}
+                </span>
+              </div>
+              {i < steps.length - 1 && (
+                <div className={`w-12 h-0.5 mx-2 ${step > s.num ? 'bg-emerald-500' : 'bg-surface-200'}`} />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* Card */}
+        <div className="bg-white rounded-2xl shadow-sm border border-surface-200 p-8">
+          {/* Error Display */}
+          {error && (
+            <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-100 rounded-xl text-red-700 text-sm mb-6">
+              <AlertCircle size={18} className="flex-shrink-0" />
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">×</button>
+            </div>
+          )}
+
+          {/* Step 1: Hosting Type */}
+          {step === 1 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold text-surface-800 mb-2">Where is your DayZ server hosted?</h2>
+                <p className="text-surface-500">This helps us configure how to connect to your server files.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={() => setHostingType('provider')}
+                  className={`p-6 rounded-xl border-2 transition-all text-left ${
+                    hostingType === 'provider'
+                      ? 'border-surface-700 bg-surface-50'
+                      : 'border-surface-200 hover:border-surface-300'
+                  }`}
+                >
+                  <Cloud size={32} className={hostingType === 'provider' ? 'text-surface-700' : 'text-surface-400'} />
+                  <h3 className="font-semibold text-surface-800 mt-3">Hosting Provider</h3>
+                  <p className="text-sm text-surface-500 mt-1">
+                    HostHavoc, GTXGaming, Nitrado, or similar game server provider
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => setHostingType('dedicated')}
+                  className={`p-6 rounded-xl border-2 transition-all text-left ${
+                    hostingType === 'dedicated'
+                      ? 'border-surface-700 bg-surface-50'
+                      : 'border-surface-200 hover:border-surface-300'
+                  }`}
+                >
+                  <HardDrive size={32} className={hostingType === 'dedicated' ? 'text-surface-700' : 'text-surface-400'} />
+                  <h3 className="font-semibold text-surface-800 mt-3">Dedicated / Local</h3>
+                  <p className="text-sm text-surface-500 mt-1">
+                    Your own server, VPS, or running locally on this machine
+                  </p>
+                </button>
+              </div>
+
+              <div className="flex justify-end pt-4">
+                <Button
+                  variant="primary"
+                  disabled={!canProceedStep1}
+                  onClick={() => {
+                    if (hostingType === 'dedicated') setBackend('local');
+                    setStep(2);
+                  }}
+                  icon={<ChevronRight size={18} />}
+                >
+                  Continue
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Connection Details */}
+          {step === 2 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold text-surface-800 mb-2">
+                  {hostingType === 'provider' ? 'Server Connection Details' : 'Server File Location'}
+                </h2>
+                <p className="text-surface-500">
+                  {hostingType === 'provider' 
+                    ? 'Enter your SFTP/FTP credentials from your hosting provider.' 
+                    : 'Enter the path to your SST mod folder on this machine.'}
+                </p>
+              </div>
+
+              {hostingType === 'provider' ? (
+                <>
+                  {/* Protocol Selection */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setBackend('sftp'); setPort('22'); }}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        backend === 'sftp' 
+                          ? 'bg-surface-700 text-white' 
+                          : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
+                      }`}
+                    >
+                      SFTP
+                    </button>
+                    <button
+                      onClick={() => { setBackend('ftp'); setPort('21'); }}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        backend === 'ftp' 
+                          ? 'bg-surface-700 text-white' 
+                          : 'bg-surface-100 text-surface-600 hover:bg-surface-200'
+                      }`}
+                    >
+                      FTP
+                    </button>
+                  </div>
+
+                  {/* URL Paste Helper */}
+                  <div className="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                    <label className="block text-sm font-medium text-surface-600 mb-2">
+                      Quick Setup: Paste your SFTP URL
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="text"
+                        value={pasteUrl}
+                        onChange={(e) => setPasteUrl(e.target.value)}
+                        placeholder="sftp://user@host:port/path/to/SST"
+                        className="flex-1"
+                      />
+                      <Button variant="secondary" onClick={parseUrl}>
+                        Parse
+                      </Button>
+                    </div>
+                    <p className="text-xs text-surface-400 mt-2">
+                      Example: sftp://sudo@104.234.251.153:8822/104.234.251.153_2332/HostHavocDayZServer/SST
+                    </p>
+                  </div>
+
+                  {/* Manual Entry */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-surface-600 mb-2">Host</label>
+                      <Input
+                        type="text"
+                        value={host}
+                        onChange={(e) => setHost(e.target.value)}
+                        placeholder="104.234.251.153"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-surface-600 mb-2">Port</label>
+                      <Input
+                        type="text"
+                        value={port}
+                        onChange={(e) => setPort(e.target.value)}
+                        placeholder={backend === 'sftp' ? '22' : '21'}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-surface-600 mb-2">Username</label>
+                      <Input
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder="Your SFTP username"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-surface-600 mb-2">Password</label>
+                      <Input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Your SFTP password"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-surface-600 mb-2">Remote Root</label>
+                      <Input
+                        type="text"
+                        value={remoteRoot}
+                        onChange={(e) => setRemoteRoot(e.target.value)}
+                        placeholder="/104.234.251.153_2332"
+                      />
+                      <p className="text-xs text-surface-400 mt-1">Base path on the server</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-surface-600 mb-2">SST Path</label>
+                      <Input
+                        type="text"
+                        value={sstPath}
+                        onChange={(e) => setSstPath(e.target.value)}
+                        placeholder="HostHavocDayZServer/SST"
+                      />
+                      <p className="text-xs text-surface-400 mt-1">Path to SST folder from root</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-surface-600 mb-2">Profiles Path (Optional)</label>
+                    <Input
+                      type="text"
+                      value={profilesPath}
+                      onChange={(e) => setProfilesPath(e.target.value)}
+                      placeholder="HostHavocDayZServer/profiles"
+                    />
+                    <p className="text-xs text-surface-400 mt-1">Path to server profiles folder (for logs). Leave empty to skip log features.</p>
+                  </div>
+                </>
+              ) : (
+                /* Local/Dedicated Setup */
+                <div>
+                  <label className="block text-sm font-medium text-surface-600 mb-2">
+                    SST Folder Path
+                  </label>
+                  <Input
+                    type="text"
+                    value={localPath}
+                    onChange={(e) => setLocalPath(e.target.value)}
+                    placeholder="C:\DayZServer\SST"
+                  />
+                  <p className="text-xs text-surface-400 mt-2">
+                    Enter the full path to your SST mod folder. This should contain an 'api' subfolder with online_players.json.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-4">
+                <Button variant="ghost" onClick={() => setStep(1)} icon={<ChevronLeft size={18} />}>
+                  Back
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!canProceedStep2}
+                  onClick={() => setStep(3)}
+                  icon={<ChevronRight size={18} />}
+                >
+                  Continue
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Test Connection */}
+          {step === 3 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold text-surface-800 mb-2">Test Connection</h2>
+                <p className="text-surface-500">
+                  Let's verify we can connect to your server and find the SST files.
+                </p>
+              </div>
+
+              {/* Connection Summary */}
+              <div className="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                <h3 className="font-medium text-surface-700 mb-3">Connection Details</h3>
+                {hostingType === 'provider' ? (
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-surface-500">Protocol:</span>
+                      <span className="text-surface-700 font-medium">{backend.toUpperCase()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-surface-500">Host:</span>
+                      <span className="text-surface-700 font-medium">{host}:{port}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-surface-500">Username:</span>
+                      <span className="text-surface-700 font-medium">{username}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-surface-500">Remote Root:</span>
+                      <span className="text-surface-700 font-medium font-mono text-xs">{remoteRoot}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-surface-500">SST Path:</span>
+                      <span className="text-surface-700 font-medium font-mono text-xs">{sstPath}</span>
+                    </div>
+                    {profilesPath && (
+                      <div className="flex justify-between">
+                        <span className="text-surface-500">Profiles Path:</span>
+                        <span className="text-surface-700 font-medium font-mono text-xs">{profilesPath}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-surface-200 pt-2 mt-2">
+                      <span className="text-surface-500">Full Path:</span>
+                      <span className="text-surface-700 font-medium font-mono text-xs">{remoteRoot === '/' ? `/${sstPath}` : `${remoteRoot}/${sstPath}`}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-surface-500">Type:</span>
+                      <span className="text-surface-700 font-medium">Local Files</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-surface-500">Path:</span>
+                      <span className="text-surface-700 font-medium">{localPath}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Test Button */}
+              <div className="flex justify-center">
+                <Button
+                  variant={connectionStatus === 'success' ? 'primary' : 'secondary'}
+                  onClick={testConnection}
+                  disabled={connectionStatus === 'testing'}
+                  icon={connectionStatus === 'testing' ? <RefreshCw size={18} className="animate-spin" /> : <Wifi size={18} />}
+                  className="w-48"
+                >
+                  {connectionStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+                </Button>
+              </div>
+
+              {/* Test Result */}
+              {connectionStatus !== 'idle' && connectionStatus !== 'testing' && (
+                <div className={`rounded-xl p-4 border ${
+                  connectionStatus === 'success' 
+                    ? 'bg-emerald-50 border-emerald-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  <div className="flex items-start gap-3">
+                    {connectionStatus === 'success' ? (
+                      <CheckCircle2 size={20} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <XCircle size={20} className="text-red-600 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <p className={connectionStatus === 'success' ? 'text-emerald-700' : 'text-red-700'}>
+                        {testResult}
+                      </p>
+                      {testDetails && connectionStatus === 'success' && (
+                        <div className="mt-2 text-sm text-emerald-600">
+                          <p>Online Players: {testDetails.onlineCount ?? 'N/A'}</p>
+                          <p>Total Players in File: {testDetails.playersLen ?? 'N/A'}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-4">
+                <Button variant="ghost" onClick={() => setStep(2)} icon={<ChevronLeft size={18} />}>
+                  Back
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!canProceedStep3 || working}
+                  onClick={saveConfiguration}
+                  icon={working ? <RefreshCw size={18} className="animate-spin" /> : <ChevronRight size={18} />}
+                >
+                  {working ? 'Saving...' : 'Save & Continue'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: API Key */}
+          {step === 4 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold text-surface-800 mb-2">API Key</h2>
+                <p className="text-surface-500">
+                  This key secures communication between the dashboard and the API server.
+                </p>
+              </div>
+
+              <div className="bg-surface-50 rounded-xl p-4 border border-surface-200">
+                <div className="flex items-center gap-3 mb-3">
+                  <Key size={20} className="text-surface-600" />
+                  <span className="font-medium text-surface-700">Your API Key</span>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="API key will appear here"
+                    className="flex-1 font-mono text-sm"
+                  />
+                  <Button variant="secondary" onClick={generateApiKey}>
+                    Generate New
+                  </Button>
+                </div>
+                <p className="text-xs text-surface-400 mt-2">
+                  This key has been saved to your API .env file. Keep it secret!
+                </p>
+              </div>
+
+              <div className="flex justify-between pt-4">
+                <Button variant="ghost" onClick={() => setStep(3)} icon={<ChevronLeft size={18} />}>
+                  Back
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!canProceedStep4}
+                  onClick={() => setStep(5)}
+                  icon={<ChevronRight size={18} />}
+                >
+                  Continue
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 5: Server Name and Admin Account */}
+          {step === 5 && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold text-surface-800 mb-2">Final Setup</h2>
+                <p className="text-surface-500">
+                  Name your server and create your admin account.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-surface-600 mb-2">
+                  <Server size={16} className="inline mr-2" />
+                  Server Name
+                </label>
+                <Input
+                  type="text"
+                  value={serverName}
+                  onChange={(e) => setServerName(e.target.value)}
+                  placeholder="My DayZ Server"
+                />
+                <p className="text-xs text-surface-400 mt-1">
+                  This is how you'll identify this server in the dashboard.
+                </p>
+              </div>
+
+              <div className="border-t border-surface-200 pt-6">
+                <h3 className="font-medium text-surface-700 mb-4">Create Admin Account</h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-surface-600 mb-2">
+                      <User size={16} className="inline mr-2" />
+                      Username
+                    </label>
+                    <Input
+                      type="text"
+                      value={adminUsername}
+                      onChange={(e) => setAdminUsername(e.target.value)}
+                      placeholder="admin"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-surface-600 mb-2">
+                      <Lock size={16} className="inline mr-2" />
+                      Password
+                    </label>
+                    <Input
+                      type="password"
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      placeholder="Enter a secure password"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-surface-600 mb-2">
+                      <Lock size={16} className="inline mr-2" />
+                      Confirm Password
+                    </label>
+                    <Input
+                      type="password"
+                      value={adminPasswordConfirm}
+                      onChange={(e) => setAdminPasswordConfirm(e.target.value)}
+                      placeholder="Confirm your password"
+                    />
+                    {adminPasswordConfirm && adminPassword !== adminPasswordConfirm && (
+                      <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-between pt-4">
+                <Button variant="ghost" onClick={() => setStep(4)} icon={<ChevronLeft size={18} />}>
+                  Back
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={!canProceedStep5 || creatingAdmin}
+                  onClick={createAdmin}
+                  icon={creatingAdmin ? <RefreshCw size={18} className="animate-spin" /> : <Check size={18} />}
+                >
+                  {creatingAdmin ? 'Creating...' : 'Complete Setup'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <p className="text-center text-surface-400 text-sm mt-6">
+          SST Dashboard by SUDO Gaming
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default SetupWizard;

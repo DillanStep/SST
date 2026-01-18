@@ -569,7 +569,7 @@ class SST_VehicleTracker
 			}
 		}
 		
-		// Always remove from tracked vehicles (whether or not vehicle was found in world)
+		// Always remove from tracked vehicles (whether or not vehicle was found in world) I plan on changing this to scan the entire world. I cant find a safe way of doing it without the server throwing a fit.
 		if (wasTracked)
 		{
 			m_TrackedVehicles.Remove(request.vehicleId);
@@ -615,7 +615,7 @@ class SST_VehicleTracker
 			existingResults.requests.Insert(request);
 		}
 		
-		// Keep only last 100 results
+		// Keep only last 100 results - Page pagination needs to be fixed on the web client before i change this
 		while (existingResults.requests.Count() > 100)
 			existingResults.requests.Remove(0);
 			

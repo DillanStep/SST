@@ -1,0 +1,39 @@
+{
+  "$schema": "./host-providers.schema.json",
+  "active": "my-host",
+  "env": {
+    "PORT": 3001,
+    "HOST": "0.0.0.0"
+  },
+  "providers": {
+    "my-host": {
+      "backend": "sftp",
+      "sftp": {
+        "host": "104.234.251.153",
+        "port": 8822,
+        "username": "YOUR_USERNAME",
+        "password": "YOUR_PASSWORD",
+        "root": "/"
+      },
+      "paths": {
+        "SST_PATH": "/104.234.251.153_2332/HostHavocDayZServer/SST",
+        "API_PATH": "/104.234.251.153_2332/HostHavocDayZServer/SST/api"
+      }
+    },
+    "my-ftp-host": {
+      "backend": "ftp",
+      "ftp": {
+        "host": "example.your-provider.com",
+        "port": 21,
+        "username": "YOUR_USERNAME",
+        "password": "YOUR_PASSWORD",
+        "secure": false,
+        "root": "/"
+      },
+      "paths": {
+        "SST_PATH": "/profiles/SST",
+        "API_PATH": "/profiles/SST/api"
+      }
+    }
+  }
+}

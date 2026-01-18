@@ -38,10 +38,19 @@
  * 2. Add cfglimitsdefinition.xml parsing
  * 3. Add spawn point location extraction
  */
-import { readFile, readdir } from "fs/promises";
-import { existsSync } from "fs";
-import path from "path";
+import { readFile, readdir, stat } from "../storage/fs.js";
 import { paths } from "../config.js";
+import { joinStoragePath } from "./storagePath.js";
+
+async function exists(targetPath) {
+  try {
+    await stat(targetPath);
+    return true;
+  } catch (err) {
+    if (err?.code === "ENOENT") return false;
+    throw err;
+  }
+}
 
 // Cache for types data
 let typesCache = null;
@@ -175,7 +184,7 @@ export async function loadTypesData(forceRefresh = false) {
   const customTypesPath = paths.typesXml; // Custom override path
   
   // If custom TYPES_PATH is set, use that directly
-  if (customTypesPath && existsSync(customTypesPath)) {
+  if (customTypesPath && (await exists(customTypesPath))) {
     try {
       const content = await readFile(customTypesPath, 'utf-8');
       const types = parseTypesXml(content);
@@ -193,14 +202,14 @@ export async function loadTypesData(forceRefresh = false) {
     }
   }
   
-  if (!missionPath || !existsSync(missionPath)) {
+  if (!missionPath || !(await exists(missionPath))) {
     console.warn('[Types] Mission path not configured or not found:', missionPath);
     return allTypes;
   }
   
   // Primary db/types.xml
-  const mainTypesPath = path.join(missionPath, 'db', 'types.xml');
-  if (existsSync(mainTypesPath)) {
+  const mainTypesPath = joinStoragePath(missionPath, 'db', 'types.xml');
+  if (await exists(mainTypesPath)) {
     try {
       const content = await readFile(mainTypesPath, 'utf-8');
       const types = parseTypesXml(content);
@@ -214,14 +223,14 @@ export async function loadTypesData(forceRefresh = false) {
   }
   
   // Look for additional types files in db/ folder
-  const dbPath = path.join(missionPath, 'db');
-  if (existsSync(dbPath)) {
+  const dbPath = joinStoragePath(missionPath, 'db');
+  if (await exists(dbPath)) {
     try {
       const files = await readdir(dbPath);
       for (const file of files) {
         if (file.endsWith('.xml') && file !== 'types.xml' && file.toLowerCase().includes('types')) {
           try {
-            const content = await readFile(path.join(dbPath, file), 'utf-8');
+            const content = await readFile(joinStoragePath(dbPath, file), 'utf-8');
             const types = parseTypesXml(content);
             for (const [key, value] of types) {
               allTypes.set(key, value);
@@ -236,8 +245,8 @@ export async function loadTypesData(forceRefresh = false) {
   }
   
   // Parse cfgeconomycore.xml to find additional CE folders
-  const economyCorePath = path.join(missionPath, 'cfgeconomycore.xml');
-  if (existsSync(economyCorePath)) {
+  const economyCorePath = joinStoragePath(missionPath, 'cfgeconomycore.xml');
+  if (await exists(economyCorePath)) {
     try {
       const economyContent = await readFile(economyCorePath, 'utf-8');
       // Look for folder references: <ce folder="...">
@@ -245,15 +254,15 @@ export async function loadTypesData(forceRefresh = false) {
       
       for (const match of folderMatches) {
         const folder = match[1];
-        const folderPath = path.join(missionPath, folder);
+        const folderPath = joinStoragePath(missionPath, folder);
         
-        if (existsSync(folderPath)) {
+        if (await exists(folderPath)) {
           try {
             const files = await readdir(folderPath);
             for (const file of files) {
               if (file.toLowerCase().includes('types') && file.endsWith('.xml')) {
                 try {
-                  const content = await readFile(path.join(folderPath, file), 'utf-8');
+                  const content = await readFile(joinStoragePath(folderPath, file), 'utf-8');
                   const types = parseTypesXml(content);
                   for (const [key, value] of types) {
                     allTypes.set(key, value);

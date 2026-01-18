@@ -41,7 +41,7 @@
  * 3. Add kill feed endpoint for recent PvP
  */
 import { Router } from "express";
-import { readFile, readdir } from "fs/promises";
+import { readFile, readdir } from "../storage/fs.js";
 import { paths } from "../config.js";
 
 const router = Router();

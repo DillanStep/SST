@@ -36,7 +36,7 @@
  * 4. Document expected parameters and behavior
  */
 import { Router } from "express";
-import { readFile, writeFile } from "fs/promises";
+import { readFile, writeFile } from "../storage/fs.js";
 import { paths } from "../config.js";
 
 const router = Router();

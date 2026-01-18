@@ -32,6 +32,11 @@ profiles/
 logs/
 npm-debug.log*
 
+# Host provider configs (may contain credentials)
+config/*.json
+!config/*.example.json
+!config/*.schema.json
+
 # OS
 .DS_Store
 Thumbs.db

@@ -39,7 +39,7 @@
  * 4. Archive old data to prevent database bloat (see archiveDb.js)
  */
 import express from 'express';
-import fs from 'fs/promises';
+import { readFile } from "../storage/fs.js";
 import { positionDb } from '../db/database.js';
 import { paths } from '../config.js';
 
@@ -136,7 +136,7 @@ router.post('/record', async (req, res) => {
 router.post('/snapshot', async (req, res) => {
   try {
     // Read current online players
-    const data = await fs.readFile(paths.onlinePlayers, 'utf-8');
+    const data = await readFile(paths.onlinePlayers, "utf-8");
     const onlineData = JSON.parse(data);
     
     if (!onlineData.players || onlineData.players.length === 0) {

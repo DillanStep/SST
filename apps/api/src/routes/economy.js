@@ -39,9 +39,9 @@
  * 3. Add support for modded item types.xml files
  */
 import { Router } from "express";
-import { readdir, readFile } from "fs/promises";
+import { readdir, readFile } from "../storage/fs.js";
 import { paths } from "../config.js";
-import path from "path";
+import { joinStoragePath } from "../utils/storagePath.js";
 import { loadTypesData, analyzeSpawnVsPrice, getSpawnStats } from "../utils/typesParser.js";
 
 const router = Router();
@@ -71,7 +71,7 @@ router.get("/", async (req, res) => {
       if (!file.endsWith("_trades.json")) continue;
       
       try {
-        const filePath = path.join(tradesDir, file);
+        const filePath = joinStoragePath(tradesDir, file);
         const data = JSON.parse(await readFile(filePath, "utf8"));
         
         if (data.trades && data.trades.length > 0) {

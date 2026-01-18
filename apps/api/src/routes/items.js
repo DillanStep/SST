@@ -36,8 +36,9 @@
  */
 
 import { Router } from "express";
-import { readFile, readdir } from "fs/promises";
+import { readFile, readdir } from "../storage/fs.js";
 import { paths } from "../config.js";
+import { consoleUi } from "../utils/consoleUi.js";
 
 const router = Router();
 
@@ -55,7 +56,11 @@ async function loadItems() {
     const data = JSON.parse(await readFile(file, "utf8"));
     itemsCache = data;
     lastLoaded = new Date().toISOString();
-    console.log(`[Items] Loaded ${data.itemCount} items`);
+    consoleUi.update({ itemsLoaded: data.itemCount });
+
+    if (!consoleUi.isEnabled()) {
+      console.log(`[Items] Loaded ${data.itemCount} items`);
+    }
     return data;
   } catch (err) {
     console.error("[Items] Failed to load:", err.message);
@@ -237,7 +242,10 @@ async function loadInventoryCounts() {
     
     inventoryCountsCache = counts;
     inventoryCountsLastLoaded = new Date().toISOString();
-    console.log(`[Items] Loaded inventory counts from ${playerCount} players, ${Object.keys(counts).length} unique items`);
+
+    if (!consoleUi.isEnabled()) {
+      console.log(`[Items] Loaded inventory counts from ${playerCount} players, ${Object.keys(counts).length} unique items`);
+    }
     return { counts, playerCount, uniqueItems: Object.keys(counts).length };
   } catch (err) {
     console.error("[Items] Failed to load inventory counts:", err.message);

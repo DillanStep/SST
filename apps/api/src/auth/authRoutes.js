@@ -50,6 +50,21 @@ const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || "sst-dashboard-secret-key-change-in-production";
 const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
+// Auth status (requires API key at the app mount)
+router.get("/status", (req, res) => {
+  try {
+    const userCount = userOps.count();
+    res.json({
+      ok: true,
+      hasUsers: userCount > 0,
+      setupRequired: userCount === 0,
+    });
+  } catch (err) {
+    console.error("Auth status error:", err);
+    res.status(500).json({ error: "Failed to get auth status" });
+  }
+});
+
 // Login
 router.post("/login", (req, res) => {
   try {
@@ -59,6 +74,14 @@ router.post("/login", (req, res) => {
       return res.status(400).json({ error: "Username and password required" });
     }
     
+    // If there are no users yet, instruct client to run setup
+    if (userOps.count() === 0) {
+      return res.status(409).json({
+        error: "No users exist yet. Run initial setup to create an admin account.",
+        code: "SETUP_REQUIRED",
+      });
+    }
+
     const user = userOps.verifyPassword(username, password);
     
     if (!user) {
@@ -97,6 +120,60 @@ router.post("/login", (req, res) => {
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ error: "Login failed" });
+  }
+});
+
+// First-run setup: create initial admin user (only allowed when no users exist)
+router.post("/setup", (req, res) => {
+  try {
+    if (userOps.count() > 0) {
+      return res.status(409).json({
+        error: "Setup already completed.",
+        code: "SETUP_ALREADY_COMPLETE",
+      });
+    }
+
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password required" });
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+
+    const trimmedUsername = String(username).trim();
+    if (!trimmedUsername) {
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const userId = userOps.create(trimmedUsername, String(password), "admin");
+    auditOps.log(userId, "SETUP_ADMIN_CREATED", `Initial admin created: ${trimmedUsername}`, req.ip);
+
+    // Create JWT token + session so setup immediately logs in
+    const token = jwt.sign(
+      { userId, username: trimmedUsername, role: "admin" },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    const expiresAt = new Date(Date.now() + SESSION_DURATION).toISOString();
+    sessionOps.create(userId, token, expiresAt, req.ip, req.get("User-Agent"));
+
+    res.cookie("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: SESSION_DURATION,
+    });
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: { id: userId, username: trimmedUsername, role: "admin" },
+    });
+  } catch (err) {
+    console.error("Setup error:", err);
+    res.status(500).json({ error: "Setup failed" });
   }
 });
 

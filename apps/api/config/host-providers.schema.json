@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SST API Host Providers Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "active": { "type": "string" },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string" },
+          { "type": "number" },
+          { "type": "boolean" }
+        ]
+      }
+    },
+    "providers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "backend": { "type": "string", "enum": ["ftp", "ftps", "sftp"] },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "number" },
+                { "type": "boolean" }
+              ]
+            }
+          },
+          "paths": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          },
+          "ftp": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": { "type": "string" },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "username": { "type": "string" },
+              "password": { "type": "string" },
+              "secure": { "type": "boolean" },
+              "root": { "type": "string" }
+            }
+          },
+          "sftp": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": { "type": "string" },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "username": { "type": "string" },
+              "password": { "type": "string" },
+              "root": { "type": "string" }
+            }
+          }
+        },
+        "required": ["backend"]
+      }
+    }
+  },
+  "required": ["providers"]
+}

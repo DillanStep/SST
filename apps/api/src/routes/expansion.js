@@ -50,11 +50,26 @@
  * 3. Test with Expansion mod loaded to verify compatibility
  */
 import { Router } from "express";
-import { readFile, readdir, writeFile } from "fs/promises";
-import { join } from "path";
-import { paths } from "../config.js";
+import { readFile, readdir, writeFile } from "../storage/fs.js";
+import { joinStoragePath } from "../utils/storagePath.js";
+import { paths, features } from "../config.js";
 
 const router = Router();
+
+// Middleware to check if Expansion is enabled
+function requireExpansion(req, res, next) {
+  if (!features.expansionEnabled) {
+    return res.status(404).json({ 
+      error: "Expansion mod features are disabled",
+      code: "EXPANSION_DISABLED",
+      hint: "Set EXPANSION_ENABLED=1 in your .env file to enable Expansion mod features"
+    });
+  }
+  next();
+}
+
+// Apply to all routes
+router.use(requireExpansion);
 
 // Helper to clean up localization strings like "#STR_EXPANSION_MARKET_CATEGORY_AMMO"
 function cleanDisplayName(name, fallbackFileName) {
@@ -90,14 +105,14 @@ function cleanDisplayName(name, fallbackFileName) {
 // GET all trader zones
 router.get("/zones", async (req, res) => {
   try {
-    const zonesPath = join(paths.missionFolder, "expansion", "traderzones");
+    const zonesPath = joinStoragePath(paths.missionFolder, "expansion", "traderzones");
     const files = await readdir(zonesPath);
     const jsonFiles = files.filter(f => f.endsWith(".json"));
     
     const zones = [];
     for (const file of jsonFiles) {
       try {
-        const content = await readFile(join(zonesPath, file), "utf8");
+        const content = await readFile(joinStoragePath(zonesPath, file), "utf8");
         const zone = JSON.parse(content);
         zones.push({
           fileName: file,
@@ -117,8 +132,8 @@ router.get("/zones", async (req, res) => {
 // GET single trader zone
 router.get("/zones/:fileName", async (req, res) => {
   try {
-    const zonesPath = join(paths.missionFolder, "expansion", "traderzones");
-    const filePath = join(zonesPath, req.params.fileName);
+    const zonesPath = joinStoragePath(paths.missionFolder, "expansion", "traderzones");
+    const filePath = joinStoragePath(zonesPath, req.params.fileName);
     const content = await readFile(filePath, "utf8");
     res.json(JSON.parse(content));
   } catch (err) {
@@ -129,8 +144,8 @@ router.get("/zones/:fileName", async (req, res) => {
 // PUT update trader zone
 router.put("/zones/:fileName", async (req, res) => {
   try {
-    const zonesPath = join(paths.missionFolder, "expansion", "traderzones");
-    const filePath = join(zonesPath, req.params.fileName);
+    const zonesPath = joinStoragePath(paths.missionFolder, "expansion", "traderzones");
+    const filePath = joinStoragePath(zonesPath, req.params.fileName);
     
     // Validate the data has required fields
     const zone = req.body;
@@ -159,7 +174,7 @@ router.get("/traders", async (req, res) => {
     const traders = [];
     for (const file of jsonFiles) {
       try {
-        const content = await readFile(join(paths.expansionTraders, file), "utf8");
+        const content = await readFile(joinStoragePath(paths.expansionTraders, file), "utf8");
         const trader = JSON.parse(content);
         traders.push({
           fileName: file,
@@ -182,7 +197,7 @@ router.get("/traders", async (req, res) => {
 // GET single trader (full data)
 router.get("/traders/:fileName", async (req, res) => {
   try {
-    const filePath = join(paths.expansionTraders, req.params.fileName);
+    const filePath = joinStoragePath(paths.expansionTraders, req.params.fileName);
     const content = await readFile(filePath, "utf8");
     res.json(JSON.parse(content));
   } catch (err) {
@@ -193,7 +208,7 @@ router.get("/traders/:fileName", async (req, res) => {
 // PUT update trader
 router.put("/traders/:fileName", async (req, res) => {
   try {
-    const filePath = join(paths.expansionTraders, req.params.fileName);
+    const filePath = joinStoragePath(paths.expansionTraders, req.params.fileName);
     const trader = req.body;
     
     await writeFile(filePath, JSON.stringify(trader, null, 4), "utf8");
@@ -217,7 +232,7 @@ router.get("/market", async (req, res) => {
     const categories = [];
     for (const file of jsonFiles) {
       try {
-        const content = await readFile(join(paths.expansionMarket, file), "utf8");
+        const content = await readFile(joinStoragePath(paths.expansionMarket, file), "utf8");
         const category = JSON.parse(content);
         categories.push({
           fileName: file,
@@ -241,7 +256,7 @@ router.get("/market", async (req, res) => {
 // GET single market category (full data with items)
 router.get("/market/:fileName", async (req, res) => {
   try {
-    const filePath = join(paths.expansionMarket, req.params.fileName);
+    const filePath = joinStoragePath(paths.expansionMarket, req.params.fileName);
     const content = await readFile(filePath, "utf8");
     const category = JSON.parse(content);
     // Clean the display name for the response
@@ -255,7 +270,7 @@ router.get("/market/:fileName", async (req, res) => {
 // PUT update market category
 router.put("/market/:fileName", async (req, res) => {
   try {
-    const filePath = join(paths.expansionMarket, req.params.fileName);
+    const filePath = joinStoragePath(paths.expansionMarket, req.params.fileName);
     const category = req.body;
     
     await writeFile(filePath, JSON.stringify(category, null, 4), "utf8");
@@ -268,7 +283,7 @@ router.put("/market/:fileName", async (req, res) => {
 // PUT update single item in market category
 router.put("/market/:fileName/item/:className", async (req, res) => {
   try {
-    const filePath = join(paths.expansionMarket, req.params.fileName);
+    const filePath = joinStoragePath(paths.expansionMarket, req.params.fileName);
     const content = await readFile(filePath, "utf8");
     const category = JSON.parse(content);
     
@@ -300,7 +315,7 @@ router.put("/market/:fileName/item/:className", async (req, res) => {
 // POST add item to market category
 router.post("/market/:fileName/item", async (req, res) => {
   try {
-    const filePath = join(paths.expansionMarket, req.params.fileName);
+    const filePath = joinStoragePath(paths.expansionMarket, req.params.fileName);
     const content = await readFile(filePath, "utf8");
     const category = JSON.parse(content);
     
@@ -346,7 +361,7 @@ router.post("/market/:fileName/item", async (req, res) => {
 // DELETE item from market category
 router.delete("/market/:fileName/item/:className", async (req, res) => {
   try {
-    const filePath = join(paths.expansionMarket, req.params.fileName);
+    const filePath = joinStoragePath(paths.expansionMarket, req.params.fileName);
     const content = await readFile(filePath, "utf8");
     const category = JSON.parse(content);
     
@@ -385,7 +400,7 @@ router.get("/market-search/:className", async (req, res) => {
     
     for (const file of jsonFiles) {
       try {
-        const content = await readFile(join(paths.expansionMarket, file), "utf8");
+        const content = await readFile(joinStoragePath(paths.expansionMarket, file), "utf8");
         const category = JSON.parse(content);
         
         const item = category.Items?.find(
@@ -434,7 +449,7 @@ router.post("/apply-price", async (req, res) => {
     
     for (const file of jsonFiles) {
       try {
-        const filePath = join(paths.expansionMarket, file);
+        const filePath = joinStoragePath(paths.expansionMarket, file);
         const content = await readFile(filePath, "utf8");
         const category = JSON.parse(content);
         
@@ -518,7 +533,7 @@ router.post("/apply-prices-bulk", async (req, res) => {
     const marketData = new Map();
     for (const file of jsonFiles) {
       try {
-        const content = await readFile(join(paths.expansionMarket, file), "utf8");
+        const content = await readFile(joinStoragePath(paths.expansionMarket, file), "utf8");
         marketData.set(file, JSON.parse(content));
       } catch {}
     }
@@ -578,7 +593,7 @@ router.post("/apply-prices-bulk", async (req, res) => {
     
     // Write all modified files
     for (const file of filesToWrite) {
-      const filePath = join(paths.expansionMarket, file);
+      const filePath = joinStoragePath(paths.expansionMarket, file);
       await writeFile(filePath, JSON.stringify(marketData.get(file), null, 4), "utf8");
     }
     
@@ -600,13 +615,13 @@ router.post("/apply-prices-bulk", async (req, res) => {
 router.get("/all", async (req, res) => {
   try {
     // Get zones
-    const zonesPath = join(paths.missionFolder, "expansion", "traderzones");
+    const zonesPath = joinStoragePath(paths.missionFolder, "expansion", "traderzones");
     let zones = [];
     try {
       const zoneFiles = await readdir(zonesPath);
       for (const file of zoneFiles.filter(f => f.endsWith(".json"))) {
         try {
-          const content = await readFile(join(zonesPath, file), "utf8");
+          const content = await readFile(joinStoragePath(zonesPath, file), "utf8");
           zones.push({ fileName: file, ...JSON.parse(content) });
         } catch {}
       }
@@ -618,7 +633,7 @@ router.get("/all", async (req, res) => {
       const traderFiles = await readdir(paths.expansionTraders);
       for (const file of traderFiles.filter(f => f.endsWith(".json"))) {
         try {
-          const content = await readFile(join(paths.expansionTraders, file), "utf8");
+          const content = await readFile(joinStoragePath(paths.expansionTraders, file), "utf8");
           const trader = JSON.parse(content);
           traders.push({
             fileName: file,
@@ -637,7 +652,7 @@ router.get("/all", async (req, res) => {
       const marketFiles = await readdir(paths.expansionMarket);
       for (const file of marketFiles.filter(f => f.endsWith(".json"))) {
         try {
-          const content = await readFile(join(paths.expansionMarket, file), "utf8");
+          const content = await readFile(joinStoragePath(paths.expansionMarket, file), "utf8");
           const category = JSON.parse(content);
           market.push({
             fileName: file,

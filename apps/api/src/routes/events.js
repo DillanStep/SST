@@ -28,7 +28,7 @@
  * 3. Add pagination for players with many events
  */
 import { Router } from "express";
-import { readFile } from "fs/promises";
+import { readFile } from "../storage/fs.js";
 import { paths } from "../config.js";
 
 const router = Router();

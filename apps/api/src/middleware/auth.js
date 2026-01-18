@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { resolveEnvPathForWrite as resolveEnvPathForWriteFromFs, upsertEnvVar } from "../utils/envFile.js";
 
 // Generate a random API key if not set in .env
 const generateApiKey = () => crypto.randomBytes(32).toString("hex");
@@ -6,13 +7,21 @@ const generateApiKey = () => crypto.randomBytes(32).toString("hex");
 // Get API key from environment or generate one
 let API_KEY = process.env.API_KEY;
 
+let apiKeyGeneratedThisRun = false;
+let apiKeyPersistedPath = null;
+
 if (!API_KEY) {
   API_KEY = generateApiKey();
-  console.log("═".repeat(60));
-  console.log("🔐 NO API_KEY IN .env - GENERATED NEW KEY:");
-  console.log(`   ${API_KEY}`);
-  console.log("   Add this to your .env file: API_KEY=" + API_KEY);
-  console.log("═".repeat(60));
+  apiKeyGeneratedThisRun = true;
+  
+  // Persist into .env so users don't lose it between restarts
+  try {
+    const envPath = resolveEnvPathForWriteFromFs();
+    upsertEnvVar(envPath, "API_KEY", API_KEY);
+    apiKeyPersistedPath = envPath;
+  } catch {
+    // If we can't write, the key still exists in memory for this run.
+  }
 }
 
 // Middleware to validate API key
@@ -46,4 +55,11 @@ export function optionalApiKey(req, res, next) {
 
 export function getApiKey() {
   return API_KEY;
+}
+
+export function getApiKeyMeta() {
+  return {
+    generated: apiKeyGeneratedThisRun,
+    persistedPath: apiKeyPersistedPath,
+  };
 }

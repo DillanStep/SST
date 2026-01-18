@@ -39,7 +39,7 @@
  * 4. Add log filtering by severity level
  */
 import { Router } from "express";
-import { readFile, readdir, stat } from "fs/promises";
+import { readFile, readdir, stat } from "../storage/fs.js";
 import { paths } from "../config.js";
 
 const router = Router();

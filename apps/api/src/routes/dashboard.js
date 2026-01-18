@@ -32,8 +32,9 @@
  */
 
 import { Router } from "express";
-import { readFile, readdir } from "fs/promises";
+import { readFile, readdir } from "../storage/fs.js";
 import { paths } from "../config.js";
+import { consoleUi } from "../utils/consoleUi.js";
 
 const router = Router();
 
@@ -170,7 +171,11 @@ async function refreshCache() {
       playerCount: Object.keys(players).length
     };
 
-    console.log(`[Cache] Refreshed ${cache.playerCount} players in ${cache.refreshTimeMs}ms`);
+    consoleUi.update({
+      cachePlayers: cache.playerCount,
+      cacheRefreshMs: cache.refreshTimeMs,
+      cacheLastUpdate: cache.lastUpdate,
+    });
   } catch (err) {
     console.error("[Cache] Refresh failed:", err.message);
   }
@@ -180,7 +185,11 @@ async function refreshCache() {
 async function startAutoRefresh() {
   await refreshCache(); // Initial load
   refreshInterval = setInterval(refreshCache, REFRESH_INTERVAL_MS);
-  console.log(`[Cache] Auto-refresh started (every ${REFRESH_INTERVAL_MS / 1000}s)`);
+  consoleUi.update({ cacheIntervalMs: REFRESH_INTERVAL_MS });
+
+  if (!consoleUi.isEnabled()) {
+    console.log(`[Cache] Auto-refresh started (every ${REFRESH_INTERVAL_MS / 1000}s)`);
+  }
 }
 
 startAutoRefresh();

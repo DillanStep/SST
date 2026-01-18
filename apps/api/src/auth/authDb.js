@@ -41,8 +41,8 @@
  * - Audit log captures all auth events
  * 
  * INITIAL SETUP:
- * First user created automatically as admin if no users exist.
- * Default: admin/admin (CHANGE IMMEDIATELY)
+ * No users are created automatically.
+ * Use POST /auth/setup (with correct API key) to create the first admin.
  * 
  * HOW TO EXTEND:
  * 1. Add new fields to user table (email, 2FA, etc.)
@@ -51,9 +51,11 @@
  */
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { resolveEnvPathForWrite, upsertEnvVar } from "../utils/envFile.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -113,18 +115,48 @@ export async function initAuthDb() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  
-  // Check if default admin exists, create if not
-  const adminExists = db.prepare("SELECT id FROM users WHERE username = ?").get("SudoArkMan");
-  
-  if (!adminExists) {
-    const hashedPassword = bcrypt.hashSync("Password123", 12);
-    db.prepare(`
-      INSERT INTO users (username, password, role) 
-      VALUES (?, ?, ?)
-    `).run("SudoArkMan", hashedPassword, "admin");
-    
-    console.log("Created default admin account: SudoArkMan");
+
+  // Optional: bootstrap an initial admin if no users exist
+  const userCountRow = db.prepare("SELECT COUNT(1) AS count FROM users").get();
+  const userCount = userCountRow?.count ?? 0;
+
+  const autoCreateAdminRaw = process.env.SST_AUTO_CREATE_ADMIN;
+  const autoCreateAdmin =
+    autoCreateAdminRaw === "1" ||
+    autoCreateAdminRaw === "true" ||
+    autoCreateAdminRaw === "yes";
+
+  if (userCount === 0) {
+    if (autoCreateAdmin) {
+      const username = (process.env.INITIAL_ADMIN_USERNAME || "admin").trim();
+      const password =
+        process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString("hex");
+
+      const hashedPassword = bcrypt.hashSync(password, 12);
+      db.prepare(`
+        INSERT INTO users (username, password, role)
+        VALUES (?, ?, ?)
+      `).run(username, hashedPassword, "admin");
+
+      // Persist to .env so the user can find it later
+      try {
+        const envPath = resolveEnvPathForWrite();
+        upsertEnvVar(envPath, "INITIAL_ADMIN_USERNAME", username);
+        upsertEnvVar(envPath, "INITIAL_ADMIN_PASSWORD", password);
+      } catch {
+        // Non-fatal
+      }
+
+      console.log("═".repeat(72));
+      console.log("No users existed - bootstrapped initial admin account.");
+      console.log(`INITIAL_ADMIN_USERNAME=${username}`);
+      console.log(`INITIAL_ADMIN_PASSWORD=${password}`);
+      console.log("(Change this password immediately after login.)");
+      console.log("═".repeat(72));
+    } else {
+      console.log("[Auth] No users exist yet. Use POST /auth/setup to create the first admin.");
+      console.log("       Or set SST_AUTO_CREATE_ADMIN=1 to auto-bootstrap credentials.");
+    }
   }
   
   console.log("Auth database initialized at:", DB_PATH);
@@ -141,6 +173,12 @@ export function getAuthDb() {
 
 // User operations
 export const userOps = {
+  // Count all users
+  count() {
+    const row = getAuthDb().prepare("SELECT COUNT(1) AS count FROM users").get();
+    return row?.count ?? 0;
+  },
+
   // Get user by username
   getByUsername(username) {
     return getAuthDb().prepare("SELECT * FROM users WHERE username = ?").get(username);
