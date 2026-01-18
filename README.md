@@ -1,74 +1,63 @@
-# DayZ-Mod-Template
+# SST Public
 
-A Comprehensive Mod Template for DayZ. Optimized with Workbench for Advanced Scripting and pboProject for Efficient Building.
-This is my personal template, that I ues for all projects
+SST is an open-source DayZ server management suite built around:
 
-# Repository Setup
+- A DayZ server mod (in-game integration)
+- A Node.js REST API
+- A web dashboard
 
-Follow these steps to clone the DayZ Mod Template, set up your project environment, and initialize your own Git repository.
+The goal is simple: give server owners proper visibility and control without relying on paid panels or clunky tooling.
 
-#### Creating Your Project from a Template
+## Start here (Wiki)
 
-1. **Use the Template Repository**:
-   - Navigate to the DayZ Mod Template repository on GitHub: `https://github.com/InclementDab/DayZ-Mod-Template`
-   - Click on the "Use this template" button near the top of the repository page.
+The documentation lives in this repo under `docs/wiki/`:
 
-2. **Set Up Your New Repository**:
-   - Enter a name for your new repository, like `DayZ-Mod-Name`.
-   - Optionally, provide a description.
-   - Choose the repository visibility (public or private).
-   - Click on "Create repository from template" to generate your new repository.
+- Wiki home: docs/wiki/index.md
+- Getting Started: docs/wiki/Getting Started/index.md
+- API docs: apps/api/docs/API.md
+- Mod script docs: docs/mod/scripts/README.md
 
-#### Cloning Your New Repository
+## Repo layout
 
-3. **Clone Your New Repository**:
-   - Once your repository is created, clone it to your local machine:
-     ```bash
-     git clone https://github.com/yourusername/DayZ-Mod-Name.git
-     ```
-   - Replace `yourusername` with your actual GitHub username.
+- `SST/` — DayZ mod source (Enforce Script)
+- `Missions/` — mission config bundles (SST.*)
+- `apps/api/` — Node/Express API
+- `apps/web/` — Vite/React dashboard
+- `docs/` — wiki + mod script docs
 
-4. **Navigate to the Cloned Directory**:
-   - Change your directory to the one you just cloned:
-     ```bash
-     cd DayZ-Mod-Name
-     ```
+## Quick start (dev)
 
-5. **Run the Installation Script**:
-   - If the template includes an installation script (`Install.ps1`), run it:
-     ```bash
-     ./Install.ps1
-     ```
+API:
 
-# Workbench
+```bash
+cd apps/api
+npm install
+npm run start
+```
 
-#### Mounting to the Workdrive
+Dashboard:
 
-1. **Run the Batch File to Mount**:
-   - Navigate to the `SetupWorkdrive.bat` file in your mod directory.
-     ```
-     ../DayZ-Mod-Name/SetupWorkdrive.bat 
-     ```
-   - Execute this batch file. It will automatically mount all folders containing a 'Workbench' folder in your repository directory to your Workdrive.
+```bash
+cd apps/web
+npm install
+npm run dev
+```
 
-#### Opening the Project in Workbench
+Environment variables:
 
-1. **Access the Project Directory**:
-   - Go to the mod's project directory:
-     ```
-     ../DayZ-Mod-Name/ModName/Workbench
-     ```
-   - Here, you will find the `dayz.gproj` file.
+- API: see `apps/api/.env.example`
+- Web: see `apps/web/.env.example` and `apps/web/.env.docker`
 
-2. **Open the Project File**:
-   - Double-click on `dayz.gproj`.
-   - If prompted, choose to open it with Workbench. You can find Workbench in `steamapps/common/DayZ Tools/Bin/Workbench`.
+## Workbench / P:\ drive
 
-#### With [Dabs Framework](https://github.com/InclementDab/DayZ-Dabs-Framework) on your machine, your project will automatically have plugins built-in. To use these plugins, follow `Using the Workbench Plugins` in the wiki.
+If you’re using DayZ Tools Workbench, this repo includes helpers for mapping to the workdrive.
+See `SetupWorkdrive.bat` and the wiki’s Getting Started section.
 
+## Branching
+
+- `main` — stable / “release-ready”
+- `develop` — active development
 
 ## License
 
-Your tool is licensed under [MIT License](LICENSE.md).
-
-For any additional questions or feedback, please raise an issue in this repository or contact [Dab](mailto:inclementdab@gmail.com).
+See docs/wiki/Legal/License.md
