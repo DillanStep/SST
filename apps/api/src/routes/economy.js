@@ -43,8 +43,53 @@ import { readdir, readFile } from "../storage/fs.js";
 import { paths } from "../config.js";
 import { joinStoragePath } from "../utils/storagePath.js";
 import { loadTypesData, analyzeSpawnVsPrice, getSpawnStats } from "../utils/typesParser.js";
+import { getArchiveDb } from "../db/archiveDb.js";
 
 const router = Router();
+
+/**
+ * Get archived trades from SQLite database within date range
+ * @param {Date | null} startDate - Filter start date
+ * @param {Date | null} endDate - Filter end date
+ * @returns {Array} Array of trade objects from archive
+ */
+function getArchivedTrades(startDate, endDate) {
+  try {
+    const db = getArchiveDb();
+    
+    let query = `
+      SELECT 
+        steam_id as playerId,
+        timestamp,
+        UPPER(trade_type) as eventType,
+        trader_name as traderName,
+        zone_name as traderZone,
+        item_class as itemClassName,
+        item_display as itemDisplayName,
+        quantity,
+        price
+      FROM archived_trades
+      WHERE 1=1
+    `;
+    const params = [];
+    
+    if (startDate) {
+      query += ` AND timestamp >= ?`;
+      params.push(startDate.toISOString());
+    }
+    if (endDate) {
+      query += ` AND timestamp <= ?`;
+      params.push(endDate.toISOString());
+    }
+    
+    query += ` ORDER BY timestamp DESC`;
+    
+    return db.prepare(query).all(...params);
+  } catch (err) {
+    console.error('Error querying archived trades:', err.message);
+    return [];
+  }
+}
 
 /**
  * Parse date filter query parameters
@@ -113,7 +158,7 @@ router.get("/", async (req, res) => {
     let totalSales = 0;
     let totalMoneySpent = 0;
     let totalMoneyEarned = 0;
-    let uniqueTraders = 0;
+    const uniqueTradersSet = new Set(); // Track unique player IDs
     
     // Item tracking
     const itemStats = new Map(); // className -> { purchases, sales, totalSpent, totalEarned, quantity }
@@ -122,6 +167,96 @@ router.get("/", async (req, res) => {
     const hourlyActivity = new Array(24).fill(0); // Transactions per hour
     const recentTransactions = [];
     
+    // =========================================================================
+    // STEP 1: Load archived trades from SQLite database (historical data)
+    // =========================================================================
+    const archivedTrades = getArchivedTrades(filterStart, filterEnd);
+    console.log(`[Economy] Loaded ${archivedTrades.length} archived trades from database`);
+    
+    for (const trade of archivedTrades) {
+      totalTransactions++;
+      uniqueTradersSet.add(trade.playerId);
+      
+      if (trade.eventType === "PURCHASE") {
+        totalPurchases++;
+        totalMoneySpent += trade.price || 0;
+      } else {
+        totalSales++;
+        totalMoneyEarned += trade.price || 0;
+      }
+      
+      // Track item stats
+      const itemKey = trade.itemClassName;
+      if (!itemStats.has(itemKey)) {
+        itemStats.set(itemKey, {
+          className: trade.itemClassName,
+          displayName: trade.itemDisplayName || trade.itemClassName,
+          purchases: 0,
+          sales: 0,
+          totalSpent: 0,
+          totalEarned: 0,
+          quantity: 0,
+          avgPrice: 0,
+          lastSeen: trade.timestamp
+        });
+      }
+      const item = itemStats.get(itemKey);
+      if (trade.eventType === "PURCHASE") {
+        item.purchases++;
+        item.totalSpent += trade.price || 0;
+      } else {
+        item.sales++;
+        item.totalEarned += trade.price || 0;
+      }
+      item.quantity += trade.quantity || 1;
+      item.avgPrice = Math.round((item.totalSpent + item.totalEarned) / (item.purchases + item.sales));
+      if (trade.timestamp > item.lastSeen) item.lastSeen = trade.timestamp;
+      
+      // Track trader stats
+      if (trade.traderName) {
+        const traderKey = trade.traderName;
+        if (!traderStats.has(traderKey)) {
+          traderStats.set(traderKey, { name: traderKey, transactions: 0, revenue: 0, purchases: 0, sales: 0 });
+        }
+        const trader = traderStats.get(traderKey);
+        trader.transactions++;
+        if (trade.eventType === "PURCHASE") {
+          trader.revenue += trade.price || 0;
+          trader.purchases++;
+        } else {
+          trader.revenue -= trade.price || 0;
+          trader.sales++;
+        }
+      }
+      
+      // Track zone stats
+      if (trade.traderZone) {
+        const zoneKey = trade.traderZone;
+        if (!zoneStats.has(zoneKey)) {
+          zoneStats.set(zoneKey, { name: zoneKey, transactions: 0, revenue: 0 });
+        }
+        const zone = zoneStats.get(zoneKey);
+        zone.transactions++;
+        if (trade.eventType === "PURCHASE") {
+          zone.revenue += trade.price || 0;
+        } else {
+          zone.revenue -= trade.price || 0;
+        }
+      }
+      
+      // Track hourly activity
+      try {
+        const hour = new Date(trade.timestamp).getUTCHours();
+        hourlyActivity[hour]++;
+      } catch {}
+      
+      // Keep for recent transactions
+      recentTransactions.push(trade);
+    }
+    
+    // =========================================================================
+    // STEP 2: Load current trades from JSON files (today's data not yet archived)
+    // =========================================================================
     for (const file of files) {
       if (!file.endsWith("_trades.json")) continue;
       
@@ -137,7 +272,9 @@ router.get("/", async (req, res) => {
           
           if (filteredTrades.length === 0) continue;
           
-          uniqueTraders++;
+          // Track unique traders
+          const playerId = file.replace('_trades.json', '');
+          uniqueTradersSet.add(playerId);
           
           // Recalculate totals from filtered trades
           const filteredPurchases = filteredTrades.filter(t => t.eventType === "PURCHASE").length;
@@ -426,6 +563,7 @@ router.get("/", async (req, res) => {
     else if (itemDiversity >= 10) economyHealth += 5;
     
     // Adjust for trader participation
+    const uniqueTraders = uniqueTradersSet.size;
     if (uniqueTraders >= 10) economyHealth += 15;
     else if (uniqueTraders >= 5) economyHealth += 10;
     else if (uniqueTraders >= 2) economyHealth += 5;
@@ -454,6 +592,11 @@ router.get("/", async (req, res) => {
         period: period || 'all',
         startDate: filterStart?.toISOString() || null,
         endDate: filterEnd?.toISOString() || null
+      },
+      dataSources: {
+        archivedTrades: archivedTrades.length,
+        jsonFiles: files.filter(f => f.endsWith("_trades.json")).length,
+        totalTradesProcessed: totalTransactions
       },
       spawnStats: spawnStatsData,
       topItemsByVolume,
