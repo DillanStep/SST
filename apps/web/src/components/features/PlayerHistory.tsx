@@ -458,37 +458,57 @@ export const PlayerHistory: React.FC<PlayerHistoryProps> = ({ isConnected }) => 
             
             {/* Playback controls */}
             {selectedPlayers.length > 0 && playerPaths.size > 0 && (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    if (isPlaying) {
-                      setIsPlaying(false);
-                    } else {
-                      if (playbackBounds.start !== null) {
-                        setPlaybackTimeMs(playbackBounds.start);
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      if (isPlaying) {
+                        setIsPlaying(false);
+                      } else {
+                        if (playbackBounds.start !== null) {
+                          setPlaybackTimeMs(playbackBounds.start);
+                        }
+                        setIsPlaying(true);
                       }
-                      setIsPlaying(true);
-                    }
-                  }}
-                  icon={isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                  className="flex-1"
-                >
-                  {isPlaying ? 'Pause' : 'Play Path'}
-                </Button>
+                    }}
+                    icon={isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    className="flex-1"
+                  >
+                    {isPlaying ? 'Pause' : 'Play Path'}
+                  </Button>
 
-                <select
-                  value={playbackSpeed}
-                  onChange={(e) => setPlaybackSpeed(Number(e.target.value) || 10)}
-                  className="text-xs bg-white border border-surface-200 rounded px-2 py-1 text-surface-700"
-                  title="Playback speed (seconds per tick)"
-                >
-                  <option value={2}>Slow</option>
-                  <option value={10}>Normal</option>
-                  <option value={30}>Fast</option>
-                  <option value={60}>Very Fast</option>
-                </select>
+                  <select
+                    value={playbackSpeed}
+                    onChange={(e) => setPlaybackSpeed(Number(e.target.value) || 10)}
+                    className="text-xs bg-white border border-surface-200 rounded px-2 py-1 text-surface-700"
+                    title="Playback speed (seconds per tick)"
+                  >
+                    <option value={2}>Slow</option>
+                    <option value={10}>Normal</option>
+                    <option value={30}>Fast</option>
+                    <option value={60}>Very Fast</option>
+                  </select>
+                </div>
+                
+                {/* Playback progress bar */}
+                {playbackTimeMs !== null && playbackBounds.start !== null && playbackBounds.end !== null && (
+                  <div className="space-y-1">
+                    <div className="w-full h-2 bg-surface-200 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-primary-500 transition-all duration-200"
+                        style={{
+                          width: `${Math.min(100, ((playbackTimeMs - playbackBounds.start) / (playbackBounds.end - playbackBounds.start)) * 100)}%`
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-surface-500">
+                      <span>{new Date(playbackTimeMs).toLocaleTimeString()}</span>
+                      <span>{new Date(playbackBounds.end).toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -664,33 +684,35 @@ export const PlayerHistory: React.FC<PlayerHistoryProps> = ({ isConnected }) => 
                 )}
                 
                 {/* Current/End marker */}
-                {positions.length > 0 && (
-                  <CircleMarker
-                    center={
-                      isPlaying && idx !== undefined && meta
-                        ? gameToMap(meta.positions[idx]?.position.x || 0, meta.positions[idx]?.position.z || 0)
-                        : gameToMap(positions[positions.length - 1].position.x, positions[positions.length - 1].position.z)
-                    }
-                    radius={10}
-                    fillColor={color}
-                    color="#fff"
-                    weight={3}
-                    fillOpacity={1}
-                  >
-                    <Popup>
-                      <div className="text-sm min-w-[150px]">
-                        <strong className="text-gray-900">{isPlaying && idx !== undefined ? 'Current' : 'Latest'}</strong><br />
-                        <span className="text-gray-700">{playerNameById.get(playerId) || playerId.slice(0, 8)}</span><br />
-                        <span className="text-xs text-gray-500">
-                          {isPlaying && idx !== undefined && meta
-                            ? new Date(meta.positions[idx]?.recordedAt || '').toLocaleString()
-                            : new Date(positions[positions.length - 1].recordedAt).toLocaleString()
-                          }
-                        </span>
-                      </div>
-                    </Popup>
-                  </CircleMarker>
-                )}
+                {positions.length > 0 && (() => {
+                  // Determine current playback position or use latest
+                  const playbackPos = (playbackTimeMs !== null && idx !== undefined && meta && meta.positions[idx])
+                    ? meta.positions[idx]
+                    : null;
+                  const displayPos = playbackPos || positions[positions.length - 1];
+                  const isAnimating = playbackPos !== null;
+                  
+                  return (
+                    <CircleMarker
+                      center={gameToMap(displayPos.position.x, displayPos.position.z)}
+                      radius={10}
+                      fillColor={color}
+                      color="#fff"
+                      weight={3}
+                      fillOpacity={1}
+                    >
+                      <Popup>
+                        <div className="text-sm min-w-[150px]">
+                          <strong className="text-gray-900">{isAnimating ? 'Current' : 'Latest'}</strong><br />
+                          <span className="text-gray-700">{playerNameById.get(playerId) || playerId.slice(0, 8)}</span><br />
+                          <span className="text-xs text-gray-500">
+                            {new Date(displayPos.recordedAt).toLocaleString()}
+                          </span>
+                        </div>
+                      </Popup>
+                    </CircleMarker>
+                  );
+                })()}
               </React.Fragment>
             );
           })}
