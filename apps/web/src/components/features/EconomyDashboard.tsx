@@ -44,11 +44,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   TrendingUp, DollarSign, ShoppingCart, Package, 
   RefreshCw, Activity, BarChart3, Clock, ArrowUp, ArrowDown,
-  Store, MapPin, Zap, AlertTriangle, CheckCircle, Info, Tag, Check, X
+  Store, MapPin, Zap, AlertTriangle, CheckCircle, Info, Tag, Check, X,
+  Calendar, Filter
 } from 'lucide-react';
 import { Card, Button } from '../ui';
 import { getEconomyStats, applyPriceChange, applyPriceChangesBulk } from '../../services/api';
-import type { EconomyResponse, PriceRecommendation } from '../../types';
+import type { EconomyResponse, PriceRecommendation, EconomyFilterPeriod, EconomyFilterParams } from '../../types';
 
 interface EconomyDashboardProps {
   isConnected: boolean;
@@ -105,11 +106,29 @@ export const EconomyDashboard: React.FC<EconomyDashboardProps> = ({ isConnected 
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'items' | 'traders' | 'pricing' | 'activity'>('overview');
   
+  // Date filter state
+  const [filterPeriod, setFilterPeriod] = useState<EconomyFilterPeriod>('week');
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  
   // Price application state
   const [applyingPrices, setApplyingPrices] = useState<Record<string, boolean>>({});
   const [appliedPrices, setAppliedPrices] = useState<Record<string, 'success' | 'error'>>({});
   const [selectedForBulk, setSelectedForBulk] = useState<Set<string>>(new Set());
   const [bulkApplying, setBulkApplying] = useState(false);
+
+  // Build filter params based on current state
+  const getFilterParams = useCallback((): EconomyFilterParams => {
+    if (filterPeriod === 'custom' && (customStartDate || customEndDate)) {
+      return {
+        period: 'custom',
+        startDate: customStartDate || undefined,
+        endDate: customEndDate || undefined
+      };
+    }
+    return { period: filterPeriod };
+  }, [filterPeriod, customStartDate, customEndDate]);
 
   const loadEconomyData = useCallback(async () => {
     if (!isConnected) return;
@@ -118,7 +137,8 @@ export const EconomyDashboard: React.FC<EconomyDashboardProps> = ({ isConnected 
     setError(null);
     
     try {
-      const data = await getEconomyStats();
+      const params = getFilterParams();
+      const data = await getEconomyStats(params);
       setEconomy(data);
       // Reset applied state when reloading
       setAppliedPrices({});
@@ -128,7 +148,7 @@ export const EconomyDashboard: React.FC<EconomyDashboardProps> = ({ isConnected 
     } finally {
       setLoading(false);
     }
-  }, [isConnected]);
+  }, [isConnected, getFilterParams]);
 
   // Apply a single price change
   const handleApplyPrice = async (rec: PriceRecommendation) => {
@@ -287,6 +307,108 @@ export const EconomyDashboard: React.FC<EconomyDashboardProps> = ({ isConnected 
           Refresh
         </Button>
       </div>
+
+      {/* Date Range Filter */}
+      <Card compact>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Calendar size={18} className="text-surface-500" />
+            <span className="text-sm font-medium text-surface-700">Time Period:</span>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Preset Period Buttons */}
+            <div className="flex gap-1 bg-surface-100 rounded-lg p-1">
+              <button
+                onClick={() => { setFilterPeriod('week'); setShowCustomDatePicker(false); }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  filterPeriod === 'week' 
+                    ? 'bg-primary-500 text-white' 
+                    : 'text-surface-600 hover:bg-surface-200'
+                }`}
+              >
+                Week
+              </button>
+              <button
+                onClick={() => { setFilterPeriod('month'); setShowCustomDatePicker(false); }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  filterPeriod === 'month' 
+                    ? 'bg-primary-500 text-white' 
+                    : 'text-surface-600 hover:bg-surface-200'
+                }`}
+              >
+                Month
+              </button>
+              <button
+                onClick={() => { setFilterPeriod('all'); setShowCustomDatePicker(false); }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  filterPeriod === 'all' 
+                    ? 'bg-primary-500 text-white' 
+                    : 'text-surface-600 hover:bg-surface-200'
+                }`}
+              >
+                All Time
+              </button>
+              <button
+                onClick={() => { setFilterPeriod('custom'); setShowCustomDatePicker(true); }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  filterPeriod === 'custom' 
+                    ? 'bg-primary-500 text-white' 
+                    : 'text-surface-600 hover:bg-surface-200'
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+
+            {/* Custom Date Picker */}
+            {showCustomDatePicker && (
+              <div className="flex items-center gap-2 ml-2">
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="px-2 py-1.5 text-sm border border-surface-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Start date"
+                />
+                <span className="text-surface-400">to</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="px-2 py-1.5 text-sm border border-surface-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="End date"
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={loadEconomyData}
+                  icon={<Filter size={14} />}
+                >
+                  Apply
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Show current filter info */}
+          {economy.filter && (
+            <div className="ml-auto text-xs text-surface-500">
+              {economy.filter.period === 'all' ? (
+                <span>Showing all data</span>
+              ) : economy.filter.period === 'custom' ? (
+                <span>
+                  {economy.filter.startDate && new Date(economy.filter.startDate).toLocaleDateString()}
+                  {economy.filter.startDate && economy.filter.endDate && ' - '}
+                  {economy.filter.endDate && new Date(economy.filter.endDate).toLocaleDateString()}
+                </span>
+              ) : (
+                <span>Showing last {economy.filter.period}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </Card>
 
       {/* Economy Health Card */}
       <Card compact>

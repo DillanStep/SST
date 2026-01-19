@@ -58,6 +58,7 @@ import type {
   LifeEventsLog,
   TradeLog,
   EconomyResponse,
+  EconomyFilterParams,
   OnlinePlayersResponse,
   OnlinePlayerData,
   PlayerLocationsResponse,
@@ -240,8 +241,8 @@ class SstApi {
     return response.data;
   }
 
-  async getEconomyStats(): Promise<EconomyResponse> {
-    const response = await this.client.get<EconomyResponse>('/economy');
+  async getEconomyStats(params?: EconomyFilterParams): Promise<EconomyResponse> {
+    const response = await this.client.get<EconomyResponse>('/economy', { params });
     return response.data;
   }
 
@@ -589,7 +590,7 @@ export const getPlayerInventory = (playerId: string) => api.getPlayerInventory(p
 export const getPlayerEvents = (playerId: string) => api.getPlayerEvents(playerId);
 export const getPlayerLifeEvents = (playerId: string) => api.getPlayerLifeEvents(playerId);
 export const getPlayerTrades = (playerId: string) => api.getPlayerTrades(playerId);
-export const getEconomyStats = () => api.getEconomyStats();
+export const getEconomyStats = (params?: EconomyFilterParams) => api.getEconomyStats(params);
 export const getAllLifeEvents = (params?: { type?: string; playerId?: string; limit?: number }) => api.getAllLifeEvents(params);
 export const getRecentDeaths = () => api.getRecentDeaths();
 export const getItems = () => api.getItems();

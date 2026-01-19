@@ -46,9 +46,64 @@ import { loadTypesData, analyzeSpawnVsPrice, getSpawnStats } from "../utils/type
 
 const router = Router();
 
+/**
+ * Parse date filter query parameters
+ * @param {string} period - Preset period: 'week', 'month', 'all'
+ * @param {string} startDate - ISO date string for custom range start
+ * @param {string} endDate - ISO date string for custom range end
+ * @returns {{ startDate: Date | null, endDate: Date | null }}
+ */
+function parseDateFilter(period, startDate, endDate) {
+  const now = new Date();
+  
+  // Handle preset periods
+  if (period === 'week') {
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    return { startDate: weekAgo, endDate: now };
+  }
+  
+  if (period === 'month') {
+    const monthAgo = new Date(now);
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
+    return { startDate: monthAgo, endDate: now };
+  }
+  
+  // Handle custom date range
+  if (startDate || endDate) {
+    return {
+      startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null
+    };
+  }
+  
+  // Default: all data (no filter)
+  return { startDate: null, endDate: null };
+}
+
+/**
+ * Check if a trade timestamp falls within the date range
+ * @param {string} timestamp - Trade timestamp
+ * @param {Date | null} startDate - Filter start date
+ * @param {Date | null} endDate - Filter end date
+ * @returns {boolean}
+ */
+function isWithinDateRange(timestamp, startDate, endDate) {
+  if (!startDate && !endDate) return true;
+  
+  const tradeDate = new Date(timestamp);
+  if (startDate && tradeDate < startDate) return false;
+  if (endDate && tradeDate > endDate) return false;
+  return true;
+}
+
 // Get global economy statistics
+// Query params: period (week|month|all), startDate, endDate
 router.get("/", async (req, res) => {
   try {
+    const { period, startDate: startDateParam, endDate: endDateParam } = req.query;
+    const { startDate: filterStart, endDate: filterEnd } = parseDateFilter(period, startDateParam, endDateParam);
+    
     const tradesDir = paths.trades;
     const files = await readdir(tradesDir).catch(() => []);
     
@@ -75,13 +130,27 @@ router.get("/", async (req, res) => {
         const data = JSON.parse(await readFile(filePath, "utf8"));
         
         if (data.trades && data.trades.length > 0) {
-          uniqueTraders++;
-          totalPurchases += data.totalPurchases || 0;
-          totalSales += data.totalSales || 0;
-          totalMoneySpent += data.totalSpent || 0;
-          totalMoneyEarned += data.totalEarned || 0;
+          // Filter trades by date range
+          const filteredTrades = data.trades.filter(trade => 
+            isWithinDateRange(trade.timestamp, filterStart, filterEnd)
+          );
           
-          for (const trade of data.trades) {
+          if (filteredTrades.length === 0) continue;
+          
+          uniqueTraders++;
+          
+          // Recalculate totals from filtered trades
+          const filteredPurchases = filteredTrades.filter(t => t.eventType === "PURCHASE").length;
+          const filteredSales = filteredTrades.filter(t => t.eventType === "SALE").length;
+          const filteredSpent = filteredTrades.filter(t => t.eventType === "PURCHASE").reduce((sum, t) => sum + (t.price || 0), 0);
+          const filteredEarned = filteredTrades.filter(t => t.eventType === "SALE").reduce((sum, t) => sum + (t.price || 0), 0);
+          
+          totalPurchases += filteredPurchases;
+          totalSales += filteredSales;
+          totalMoneySpent += filteredSpent;
+          totalMoneyEarned += filteredEarned;
+          
+          for (const trade of filteredTrades) {
             totalTransactions++;
             
             // Track item stats
@@ -380,6 +449,11 @@ router.get("/", async (req, res) => {
         hasMinimumData,
         oldestTransaction: oldestTransaction?.toISOString() || null,
         newestTransaction: newestTransaction?.toISOString() || null
+      },
+      filter: {
+        period: period || 'all',
+        startDate: filterStart?.toISOString() || null,
+        endDate: filterEnd?.toISOString() || null
       },
       spawnStats: spawnStatsData,
       topItemsByVolume,

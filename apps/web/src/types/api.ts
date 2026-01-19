@@ -199,8 +199,23 @@ export interface PriceRecommendation {
   priceRarityAlignment?: number;
 }
 
+export type EconomyFilterPeriod = 'week' | 'month' | 'all' | 'custom';
+
+export interface EconomyFilterParams {
+  period?: EconomyFilterPeriod;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface EconomyFilter {
+  period: EconomyFilterPeriod;
+  startDate: string | null;
+  endDate: string | null;
+}
+
 export interface EconomyResponse {
   summary: EconomySummary;
+  filter: EconomyFilter;
   topItemsByVolume: EconomyItemStats[];
   topItemsBySpending: EconomyItemStats[];
   topSoldItems: EconomyItemStats[];
